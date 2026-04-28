@@ -1897,39 +1897,26 @@ function update(timestamp) {
         }
     }
 
-    if (dt > 0.1) dt = 0.1;
-    gameTime += dt * 2; 
+    function updateBossEntity(b) {
+    if (!b) return;
+    const _dt = dt;
+    let effectiveDt = _dt;
+    if (b.slowTimer > 0) effectiveDt *= 0.6;
 
-    // --- MULTIPLAYER UPDATE ---
-    if (multiplayer.status === 'playing' && multiplayer.roomId) {
-        updateMultiplayer(dt);
-    }
-
-
-
-        if (player.invuln > 0) player.invuln -= dt;
-
-        if (b.state === 'IDLE') {
-            b.attackTimer -= effectiveDt;
-            // Float movement
-            b.targetY = 150 + Math.sin(gameTime * 0.8) * 40;
-            const spawnX = b.spawnX;
-            b.targetX = spawnX + Math.cos(gameTime * 0.5) * 80;
-            b.x += (b.targetX - b.x) * effectiveDt * 2;
-
-            b.attackTimer -= effectiveDt;
-            if (Math.floor(b.attackTimer * 10) % 3 === 0 && b.attackTimer > 0) {
-                for (let i = 0; i < 16; i++) {
-                    const ang = (i / 16) * Math.PI * 2 + (b.attackTimer * 2);
-                    b.projectiles.push({
-                        x: b.x + b.width/2, y: b.y + b.height/2,
-                        vx: Math.cos(ang) * 400, vy: Math.sin(ang) * 400,
-                        radius: 8, life: 3, type: 'NORMAL'
-                    });
-                }
+    if (b.state === 'BURST') {
+        b.attackTimer -= effectiveDt;
+        if (Math.floor(b.attackTimer * 10) % 3 === 0 && b.attackTimer > 0) {
+            for (let i = 0; i < 16; i++) {
+                const ang = (i / 16) * Math.PI * 2 + (b.attackTimer * 2);
+                b.projectiles.push({
+                    x: b.x + b.width/2, y: b.y + b.height/2,
+                    vx: Math.cos(ang) * 400, vy: Math.sin(ang) * 400,
+                    radius: 8, life: 3, type: 'NORMAL'
+                });
             }
-            if (b.attackTimer <= 0) { b.state = 'IDLE'; b.attackTimer = 1.5; }
-        } else if (b.state === 'CROSS_BEAM') {
+        }
+        if (b.attackTimer <= 0) { b.state = 'IDLE'; b.attackTimer = 1.5; }
+    } else if (b.state === 'CROSS_BEAM') {
             b.attackTimer -= effectiveDt;
             if (b.attackTimer > 0.5 && b.attackTimer < 1.8) {
                 b.crossX = player.x + player.width/2;
