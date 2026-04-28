@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Untitled Boss Fight</title>
+    <title>PvP Arena</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -23,12 +23,11 @@
                     <div class="health-pip"></div>
                     <div class="health-pip"></div>
                 </div>
-                <div id="rush-counter" style="color: rgba(255,255,255,0.4); font-size: 12px; font-weight: bold; font-variant-numeric: tabular-nums;">BOSS 1 OF 2</div>
-                <div id="infinite-counter" style="display: none; color: #ffa502; font-size: 12px; font-weight: bold; font-variant-numeric: tabular-nums;">DEFEATED: 0</div>
-                <div id="timer-display">00:00.00</div>
+                <div id="round-counter" style="color: rgba(255,255,255,0.8); font-size: 14px; font-weight: bold; font-variant-numeric: tabular-nums; letter-spacing: 2px;">ROUND 1</div>
+                <div id="score-counter" style="color: var(--accent-gold); font-size: 12px; font-weight: bold; font-variant-numeric: tabular-nums;">0 - 0</div>
+                <div id="timer-display" style="display: none;">00:00.00</div>
                 <div style="width: 100px; text-align: right;">
-                    <button onclick="toggleInventory()" style="padding: 4px 8px; font-size: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: white; cursor: pointer;">INVENTORY [TAB]</button>
-                    <div id="boss-traits-display" style="color: rgba(255,255,255,0.6); font-size: 9px; text-align: right; margin-top: 4px; text-transform: uppercase; line-height: 1.2;"></div>
+                    <button onclick="toggleInventory()" style="padding: 4px 8px; font-size: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: white; cursor: pointer;">UPGRADES [TAB]</button>
                 </div> 
             </div>
             
@@ -40,18 +39,6 @@
                         <!-- Health pips added by script -->
                     </div>
                 </div>
-            </div>
-
-            <div id="boss-health-container">
-                <div id="boss-health-bar"></div>
-                <div id="boss-name" style="font-size: 10px; color: rgba(255,255,255,0.5); text-align: right; margin-top: 2px; text-transform: uppercase; letter-spacing: 1px;">ALPHA CORE</div>
-                <div id="boss-trait-icons" style="display: flex; gap: 4px; justify-content: flex-end; margin-top: 2px;"></div>
-            </div>
-        </div>
-        <div id="xp-container" style="position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); width: 400px; max-width: 80vw; display: none; pointer-events: none;">
-            <div style="font-size: 10px; color: #a29bfe; font-weight: bold; margin-bottom: 2px; text-align: center; letter-spacing: 1px;">LEVEL <span id="xp-level">1</span></div>
-            <div style="width: 100%; background: rgba(0,0,0,0.5); height: 6px; border-radius: 3px; overflow: hidden; border: 1px solid rgba(162, 155, 254, 0.3);">
-                <div id="xp-bar" style="width: 0%; height: 100%; background: #a29bfe; box-shadow: 0 0 10px #a29bfe; transition: width 0.3s ease;"></div>
             </div>
         </div>
 
@@ -66,7 +53,7 @@
 
         <!-- Title Screen -->
         <div id="title-screen" class="overlay">
-            <h1>UNTITLED 1V1 ARENA</h1>
+            <h1>PVP ARENA</h1>
             <p>Battle other players in real-time</p>
             
             <div id="auth-container" style="margin-bottom: 20px;">
@@ -79,17 +66,8 @@
             </div>
 
             <div class="menu-buttons" id="main-menu-buttons">
-                <button onclick="showLobby()" style="background: #e67e22; box-shadow: 0 4px #d35400;">BATTLE 1v1</button>
-                <div style="display: flex; gap: 10px;">
-                    <button onclick="startGame()" style="flex: 1;">Single Player</button>
-                    <button onclick="showSandbox()" style="background: #9b59b6; box-shadow: 0 4px #8e44ad; flex: 1;">Sandbox</button>
-                </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin: 10px 0;">
-                    <button id="weapon-gun" onclick="selectWeapon('GUN')" style="border: 2px solid var(--accent-blue);">GUN</button>
-                    <button id="weapon-sword" onclick="selectWeapon('SWORD')" style="opacity: 0.5;">SWORD</button>
-                    <button id="weapon-boomerang" onclick="selectWeapon('BOOMERANG')" style="opacity: 0.5;">BOOMERANG</button>
-                </div>
-                <div style="display: flex; gap: 10px;">
+                <button onclick="showLobby()" style="background: #e67e22; box-shadow: 0 4px #d35400; width: 100%;">ENTER THE ARENA</button>
+                <div style="display: flex; gap: 10px; width: 100%;">
                     <button onclick="showControls()" style="flex: 1;">Controls</button>
                     <button id="avatar-btn" onclick="showAvatarEditor()" style="flex: 1; background: #27ae60; box-shadow: 0 4px #219150;">Avatar</button>
                 </div>
@@ -127,14 +105,6 @@
             <button onclick="leaveRoom()" style="background: #ff4757; box-shadow: 0 4px #ff6b81;">Leave Room</button>
         </div>
 
-        <!-- Index Screen -->
-        <div id="index-screen" class="overlay" style="display: none;">
-            <h2>UPGRADE INDEX</h2>
-            <div id="index-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-height: 400px; overflow-y: auto; width: 80%; max-width: 600px; margin-bottom: 20px; padding-right: 10px;">
-                <!-- Filled by JS -->
-            </div>
-            <button onclick="showTitle()" style="background: #555; box-shadow: 0 4px #333;">Back to Menu</button>
-        </div>
 
         <!-- Avatar Editor Screen -->
         <div id="avatar-screen" class="overlay" style="display: none;">
@@ -247,38 +217,6 @@
             </div>
         </div>
 
-        <!-- Sandbox Screen -->
-        <div id="sandbox-screen" class="overlay" style="display: none; padding-bottom: 20px;">
-            <h2>SANDBOX MODE</h2>
-            <div style="display: flex; flex-wrap: wrap; gap: 20px; width: 90%; max-width: 800px; height: 100%; max-height: calc(100vh - 200px); text-align: left; margin-bottom: 20px;">
-                <div style="flex: 1; min-width: 250px; background: rgba(0,0,0,0.5); padding: 15px; border-radius: 8px; overflow-y: auto;">
-                    <h3 style="margin-top: 0; color: var(--accent-gold);">Player Upgrades</h3>
-                    <div id="sandbox-upgrades-list" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; font-size: 12px;">
-                        <!-- Filled by JS -->
-                    </div>
-                </div>
-                <div style="flex: 1; min-width: 250px; background: rgba(0,0,0,0.5); padding: 15px; border-radius: 8px; overflow-y: auto;">
-                    <h3 style="margin-top: 0; color: #ff4757;">Boss Configuration</h3>
-                    <div>
-                        <label style="display: block; margin-bottom: 5px;">Base Health Multiplier: <span id="sandbox-hp-val">1.0</span>x</label>
-                        <input type="range" id="sandbox-hp" min="0.5" max="5.0" step="0.5" value="1.0" style="width: 100%; margin-bottom: 15px;" oninput="document.getElementById('sandbox-hp-val').innerText = this.value">
-                    </div>
-                    <div style="margin-bottom: 10px;">
-                        <strong>Boss Attacks (Select at least 1)</strong>
-                    </div>
-                    <div id="sandbox-attacks-list" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; font-size: 12px;">
-                        <!-- Filled by JS -->
-                    </div>
-                    <label style="display: block; margin-top: 15px; color: #f1c40f; font-weight: bold; font-size: 14px;">
-                        <input type="checkbox" id="sandbox-cheeselord"> Is Cheese Lord
-                    </label>
-                </div>
-            </div>
-            <div style="display: flex; gap: 10px; margin-top: auto;">
-                <button onclick="startSandboxRun()" style="background: #e67e22; box-shadow: 0 4px #d35400;">Start Run</button>
-                <button onclick="showTitle()" style="background: #555; box-shadow: 0 4px #333;">Cancel</button>
-            </div>
-        </div>
 
         <!-- Controls Screen -->
         <div id="controls-screen" class="overlay" style="display: none;">
@@ -307,16 +245,6 @@
             <button onclick="showTitle()">Back</button>
         </div>
 
-        <!-- Credits Screen -->
-        <div id="credits-screen" class="overlay" style="display: none; background: rgba(0, 0, 0, 0.95);">
-            <h3>CREDITS</h3>
-            <div style="font-size: 14px; text-align: left; max-width: 500px; display: flex; flex-direction: column; gap: 15px; margin-bottom: 20px; line-height: 1.5;">
-                <p><strong>M.T.</strong> - Playtester.</p>
-                <p><strong>Magister Cornish</strong> - Playtesting on the projector screen, both giving feedback and advertising the game.</p>
-                <p><strong>A.A.</strong> - Hating on the game for me only to make it better.</p>
-            </div>
-            <button onclick="showTitle()" style="background: #e67e22; box-shadow: 0 4px #d35400;">Back</button>
-        </div>
         
         <!-- Win Screen -->
         <div id="win-screen" class="overlay" style="display: none;">
@@ -327,7 +255,6 @@
             </div>
             <div style="display: flex; gap: 10px; margin-top: 20px; justify-content: center;">
                 <button onclick="resetRun()" style="background: #555; box-shadow: 0 4px #333;">Back to Menu</button>
-                <button id="win-replay-btn" onclick="startSandboxRun()" style="display: none; background: #e67e22; box-shadow: 0 4px #d35400;">Replay Run</button>
             </div>
         </div>
 
@@ -343,25 +270,6 @@
         <!-- NPC Interaction UI -->
         <div id="interaction-prompt">TALK</div>
         
-        <!-- UI Components -->
-        <div id="admin-panel" class="overlay" style="display: none;">
-            <h2>ADMIN PANEL</h2>
-            <div style="width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 15px;">
-                <textarea id="announcement-input" placeholder="Global announcement message..." rows="3" style="padding: 10px; border-radius: 5px; border: none; width: 100%; font-size: 16px;"></textarea>
-                <div style="display: flex; gap: 10px;">
-                    <button onclick="postAnnouncement()" style="flex: 1; padding: 10px;">Post/Update</button>
-                    <button onclick="clearAnnouncement()" style="flex: 1; padding: 10px; background: #ff4757; box-shadow: 0 4px #c0392b;">Clear All</button>
-                </div>
-                <hr style="width: 100%; border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 10px 0;">
-                <button onclick="window.adminResetStats()" style="width: 100%; padding: 12px; background: #e67e22; color: white; font-weight: bold; border: none; border-radius: 4px; box-shadow: 0 4px #d35400; cursor: pointer; margin-top: 10px;">RESET ALL STATS & PROGRESS</button>
-                <hr style="width: 100%; border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 10px 0;">
-                <h3>Manage Scores</h3>
-                <div id="admin-highscore-list" style="max-height: 200px; overflow-y: auto; width: 100%; font-size: 14px;">
-                    <p>Loading scores...</p>
-                </div>
-            </div>
-            <button onclick="showTitle()" style="margin-top: 30px; background: #555; box-shadow: 0 4px #333;">Back</button>
-        </div>
 
         <!-- Touch Controls -->
         <div id="touch-controls" style="display: none;">

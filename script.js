@@ -8,84 +8,19 @@ let multiplayer = {
     roomSubscription: null,
     statesSubscription: null,
     lastUpdate: 0,
-    updateRate: 100, // ms
+    updateRate: 50, // ms
     opponentBullets: [],
-    status: 'idle'
+    status: 'idle',
+    p1Score: 0,
+    p2Score: 0,
+    round: 1,
+    waitingForReady: false,
+    selectedUpgrade: null
 };
 
-// --- API SYSTEM (Replacement for Firebase) ---
-async function fetchHighscores() {
-    try {
-        const res = await fetch('/api/highscores');
-        if (!res.ok) return [];
-        return await res.json();
-    } catch (e) {
-        console.warn("Could not fetch highscores", e);
-        return [];
-    }
-}
-
-async function postScore(userName, time) {
-    try {
-        const res = await fetch('/api/highscores', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userName, time })
-        });
-        return await res.json();
-    } catch (e) {
-        console.error("Score submission failed", e);
-        throw e;
-    }
-}
-
-async function fetchAnnouncement() {
-    try {
-        const res = await fetch('/api/announcement');
-        if (!res.ok) return null;
-        return await res.json();
-    } catch (e) {
-        // Silently fail as announcements are non-critical
-        return null;
-    }
-}
-
-async function updateAnnouncement(message, active = true) {
-    try {
-        const res = await fetch('/api/announcement', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message, active })
-        });
-        return await res.json();
-    } catch (e) {
-        console.error("Announcement update failed", e);
-        throw e;
-    }
-}
-
-async function removeScore(index) {
-    try {
-        await fetch(`/api/highscores/${index}`, { method: 'DELETE' });
-    } catch (e) {
-        console.error("Score deletion failed", e);
-    }
-}
-
-// Initialize Announcement - REMOVED AS REQUESTED
-// Admin Simulation
-let isAdminUser = false;
-function updateAdminUI() {
-    const adminBtn = document.getElementById('admin-panel-btn');
-    const loginLink = document.getElementById('admin-login-link');
-    if (isAdminUser) {
-        adminBtn.style.display = 'block';
-        if (loginLink) loginLink.style.display = 'none';
-    } else {
-        adminBtn.style.display = 'none';
-        if (loginLink) loginLink.style.display = 'block';
-    }
-}
+// --- API SYSTEM (PvP focused) ---
+async function fetchHighscores() { return []; }
+async function submitHighscore() { return; }
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -404,7 +339,7 @@ const BOSS_DATA = [
     { name: 'OMEGA CORE', color: '#9b59b6', phases: OMEGA_PHASES, spawnX: 400 }
 ];
 
-let rushIndex = 0; // Current boss in the rush (0 to BOSS_DATA.length-1)
+let rushIndex = 0;
 let mouseX = 100;
 let mouseY = 300;
 let isMouseDown = false;
@@ -562,11 +497,6 @@ let timerFinished = false;
 let dialogueActive = false;
 let currentInteractable = null;
 let isCustomMode = false;
-let isInfiniteMode = false;
-let isSandboxMode = false;
-let sandboxAttacks = [];
-let defeatedBossesCount = 0;
-let customLevelData = null;
 
 function formatTime(ms) {
     let minutes = Math.floor(ms / 60000);
@@ -743,8 +673,8 @@ function createBoss(index) {
         hitResonance: 0
     };
 }
-let boss = createBoss(0);
-let boss2 = null; // Removed in favor of rushIndex sequential logic
+let boss = null;
+let boss2 = null;
 
 // 4. ARENA DEFINITION
 const ARENA = [
@@ -1366,40 +1296,7 @@ function initLevel() {
         player.damage = 10;
         PLAYER_FIRE_RATE = 0.25;
     }
-    jumpForce = -750;
-    PLAYER_BULLET_SPEED = 800;
     randomPlatformTimer = 3.0;
-    
-    rushIndex = 0;
-    if (isInfiniteMode) {
-        boss = createInfiniteBoss();
-    } else if (isSandboxMode) {
-        const hpScale = parseFloat(document.getElementById('sandbox-hp').value) || 1.0;
-        const color = '#9b59b6';
-        if (document.getElementById('sandbox-cheeselord') && document.getElementById('sandbox-cheeselord').checked) {
-            boss = createCheeseLord(hpScale, 1.0);
-        } else {
-            const traits = getTraits();
-            boss = {
-                id: -2,
-                x: 400, y: 150, spawnX: 400,
-                width: 80, height: 80,
-                health: BOSS_MAX_HEALTH * hpScale,
-                maxHealth: BOSS_MAX_HEALTH * hpScale,
-                speedMod: traits.includes('RAGE') ? 1.5 : 1.0,
-                traits: traits,
-                state: 'IDLE', attackTimer: 2.0, phase: 0,
-                color: color, name: 'SANDBOX CORE',
-                targetX: 400, targetY: 150,
-                projectiles: [], mines: [], seekers: [], minions: [],
-                beam: { active: false, x1: 0, y1: 0, x2: 0, y2: 0, width: 0, timer: 0 },
-                lastSpiralTick: 0, hitResonance: 0, slowTimer: 0,
-                phases: [{ threshold: 1.0, attacks: sandboxAttacks }]
-            };
-        }
-    } else {
-        boss = createBoss(0);
-    }
     
     updateHealthUI();
     respawn();
@@ -1418,99 +1315,17 @@ function updateHealthUI() {
         container.appendChild(pip);
     }
     
-    const bossBar = document.getElementById('boss-health-bar');
-    const bossNameDisplay = document.getElementById('boss-name');
-    const rushCounter = document.getElementById('rush-counter');
-    
-    if (bossBar) {
-        const percent = (boss.health / boss.maxHealth) * 100;
-        bossBar.style.width = Math.max(0, percent) + '%';
-        bossBar.style.background = boss.color;
-        if (bossNameDisplay) {
-            let trStr = "";
-            if (boss.traits && boss.traits.length > 0) trStr = ` [${boss.traits.join(", ")}]`;
-            bossNameDisplay.innerText = boss.name + trStr;
-            bossNameDisplay.style.color = boss.color;
-        }
-    }
-    
-    if (rushCounter) {
-        rushCounter.innerText = `BOSS ${rushIndex + 1} OF ${BOSS_DATA.length}`;
-        rushCounter.style.color = boss.color;
-        rushCounter.style.opacity = 0.6;
-    }
-
-    const traitsDisplay = document.getElementById('boss-traits-display');
-    const traitIcons = document.getElementById('boss-trait-icons');
-    
-    if (traitsDisplay && boss && boss.health > 0) {
-        if (boss.traits && boss.traits.length > 0) {
-            traitsDisplay.innerHTML = "BOSS TRAITS:<br>" + boss.traits.map(t => `<span style="color: white; font-weight: bold;">${t}</span>`).join('<br>');
-        } else {
-            traitsDisplay.innerHTML = '';
-        }
-    } else if (traitsDisplay) {
-        traitsDisplay.innerHTML = '';
-    }
-
-    if (traitIcons) {
-        traitIcons.innerHTML = '';
-        if (boss && boss.traits && boss.health > 0) {
-            boss.traits.forEach(t => {
-                const icon = document.createElement('div');
-                icon.style.width = '14px';
-                icon.style.height = '14px';
-                icon.style.borderRadius = '3px';
-                icon.style.fontSize = '10px';
-                icon.style.display = 'flex';
-                icon.style.alignItems = 'center';
-                icon.style.justifyContent = 'center';
-                icon.style.background = 'rgba(255,255,255,0.15)';
-                icon.style.color = 'white';
-                icon.style.border = '1px solid rgba(255,255,255,0.1)';
-                icon.title = t;
-                
-                let symbol = t[0]; 
-                if (t === 'DEPRESSED') symbol = '😢';
-                else if (t === 'TRIUMVIRATE') symbol = '👁️';
-                else if (t === 'RAGE') symbol = '💢';
-                else if (t === 'HOMING') symbol = '🎯';
-                else if (t === 'BOOMERANG') symbol = '🪃';
-                else if (t === 'STONE') symbol = '🪨';
-                else if (t === 'SHARP') symbol = '⚔️';
-                else if (t === 'HEAL') symbol = '➕';
-                else if (t === 'CHILL') symbol = '❄️';
-                else if (t === 'BOUNCY') symbol = '🏀';
-                else if (t === 'GHOST') symbol = '👻';
-                else if (t === 'REACTIVE') symbol = '⚡';
-                else if (t === 'ORBITAL') symbol = '🪐';
-                else if (t === 'TELEPORT') symbol = '🌀';
-                else if (t === 'TITAN') symbol = '🐘';
-                else if (t === 'STATIC') symbol = '🌩️';
-                
-                icon.innerText = symbol;
-                traitIcons.appendChild(icon);
-            });
-        }
-    }
-    
-    // XP UI update
-    const xpContainer = document.getElementById('xp-container');
-    const xpBar = document.getElementById('xp-bar');
-    const xpLevel = document.getElementById('xp-level');
-    
-    if (xpContainer && xpBar && xpLevel) {
-        if (gameState === 'PLAYING') {
-            xpContainer.style.display = 'block';
-            xpLevel.innerText = currentLevel;
-            let reqXP = Math.floor(1.8 * Math.pow(currentLevel, 2));
-            let prevReqXP = currentLevel > 1 ? Math.floor(1.8 * Math.pow(currentLevel - 1, 2)) : 0;
-            let currentLevelProgress = currentXP - prevReqXP;
-            let currentLevelReq = reqXP - prevReqXP;
-            let xpPercent = Math.min(100, (currentLevelProgress / currentLevelReq) * 100);
-            xpBar.style.width = Math.max(0, xpPercent) + '%';
-        } else {
-            xpContainer.style.display = 'none';
+    // Update Opponent Health
+    const oppContainer = document.getElementById('player2-health-container');
+    if (oppContainer && multiplayer.opponent) {
+        oppContainer.innerHTML = '';
+        const oppMaxHealth = multiplayer.opponent.maxHealth || 10;
+        const oppHealth = multiplayer.opponent.health !== undefined ? multiplayer.opponent.health : oppMaxHealth;
+        for (let i = 0; i < oppMaxHealth; i++) {
+            const pip = document.createElement('div');
+            pip.classList.add('health-pip');
+            if (i >= oppHealth) pip.classList.add('empty');
+            oppContainer.appendChild(pip);
         }
     }
 }
@@ -1523,14 +1338,81 @@ function updateMultiplayer(dt) {
     if (now - multiplayer.lastUpdate > multiplayer.updateRate) {
         multiplayer.lastUpdate = now;
         
-        const state = {
+        fb.updatePlayerState(multiplayer.roomId, {
             x: player.x,
             y: player.y,
             health: player.health,
+            maxHealth: player.maxHealth,
             bullets: player.bullets.map(b => ({ x: b.x, y: b.y, radius: b.radius }))
-        };
-        fb.updatePlayerState(multiplayer.roomId, state);
+        });
     }
+
+    // Check if opponent bullets hit us
+    if (multiplayer.opponent && multiplayer.opponent.bullets && player.health > 0 && player.invuln <= 0) {
+        for (let i = 0; i < multiplayer.opponent.bullets.length; i++) {
+            const b = multiplayer.opponent.bullets[i];
+            const dx = (player.x + player.width/2) - b.x;
+            const dy = (player.y + player.height/2) - b.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist < (b.radius || 6) + player.width/3) {
+                playerTakeDamage();
+                break;
+            }
+        }
+    }
+
+    // Check if opponent died (they will report it themselves, but we can detect it here for UI)
+    if (multiplayer.opponent && multiplayer.opponent.health <= 0 && gameState === 'PLAYING') {
+        handleRoundEnd(true); // Opponent lost, so we won the round
+    }
+}
+
+function handleRoundEnd(isLocalWin) {
+    if (gameState !== 'PLAYING') return;
+    gameState = 'ROUND_OVER';
+    
+    if (isLocalWin) {
+        multiplayer.p1Score++;
+        spawnParticles(player.x, player.y, '#2ed573', 50);
+    } else {
+        multiplayer.p2Score++;
+        spawnParticles(player.x, player.y, '#ff4757', 50);
+    }
+    
+    updateScoreUI();
+    setShake(20, 0.5);
+
+    // Check match win (Best of 5 = First to 3)
+    if (multiplayer.p1Score >= 3 || multiplayer.p2Score >= 3) {
+        setTimeout(multiplayerWin, 1500);
+    } else {
+        setTimeout(() => {
+            showUpgradeScreen();
+        }, 1500);
+    }
+}
+
+function startNextRound() {
+    multiplayer.round++;
+    multiplayer.waitingForReady = false;
+    
+    // Reset player states for next round
+    player.health = player.maxHealth;
+    player.invuln = 2.0; // Give a bit of spawn protection
+    respawn();
+    
+    updateHealthUI();
+    updateScoreUI();
+    
+    gameState = 'PLAYING';
+    sfx.portal();
+}
+
+function updateScoreUI() {
+    const roundEl = document.getElementById('round-counter');
+    const scoreEl = document.getElementById('score-counter');
+    if (roundEl) roundEl.innerText = `ROUND ${multiplayer.round}`;
+    if (scoreEl) scoreEl.innerText = `${multiplayer.p1Score} - ${multiplayer.p2Score}`;
 }
 
 async function multiplayerWin() {
@@ -1558,18 +1440,7 @@ function playerTakeDamage(source = 'default') {
         return;
     }
     
-    // Check traits from the global boss
     let dmgAmount = 1;
-    if (boss && boss.traits) {
-        if (boss.traits.includes('STONE')) dmgAmount = Math.floor(Math.random() * 2) + 2; // 2 or 3 damage
-        if (boss.traits.includes('SHARP')) {
-            player.bleedTimer = 6; // Take 2 further damage over 6 seconds
-        }
-        if (boss.traits.includes('HEAL')) {
-            boss.health = Math.min(boss.maxHealth, boss.health + boss.maxHealth * 0.25);
-            spawnParticles(boss.x + boss.width/2, boss.y + boss.height/2, '#2ecc71', 15);
-        }
-    }
 
     if (player.armor && Math.random() < player.armor) {
         spawnParticles(player.x + player.width/2, player.y + player.height/2, '#00d2ff', 5);
@@ -1585,10 +1456,6 @@ function playerTakeDamage(source = 'default') {
     spawnParticles(player.x + player.width/2, player.y + player.height/2, '#fff', 15);
     updateHealthUI();
     
-    if (player.health <= 0) {
-        setTimeout(() => resetRun(false), 800);
-    }
-
     if (player.reactiveArmor) {
         for (let i = 0; i < 12; i++) {
             const ang = (i / 12) * Math.PI * 2;
@@ -1607,79 +1474,61 @@ function playerTakeDamage(source = 'default') {
 
 // --- UPGRADE SYSTEM ---
 const UPGRADES = [
-    { id: 'DAMAGE', title: 'Kinetic Amp', rarity: 'COMMON', buff: 'Core damage +5', defect: 'Max HP -1', run: () => { player.damage += 5; player.maxHealth = Math.max(1, player.maxHealth - 1); player.health = Math.min(player.health, player.maxHealth); updateHealthUI(); } },
-    { id: 'FIRE_RATE', title: 'Overclock', rarity: 'RARE', buff: 'Firing rate +25%', defect: 'Movement speed -10%', run: () => { PLAYER_FIRE_RATE *= 0.75; playerMoveSpeed *= 0.9; } },
-    { id: 'MULTISHOT', title: 'Split Core', rarity: 'EPIC', weapon: 'GUN', buff: '+1 Bullet', defect: 'Damage -3', run: () => { player.multishot++; player.damage = Math.max(1, player.damage - 3); } },
-    { id: 'HEALTH', title: 'Repair Nano', rarity: 'COMMON', buff: '+2 Max HP, heal 5', defect: 'Move speed -5%', run: () => { player.maxHealth += 2; player.health = Math.min(player.maxHealth, player.health + 5); playerMoveSpeed *= 0.95; updateHealthUI(); } },
-    { id: 'SPEED', title: 'Photon Accel', rarity: 'COMMON', weapon: 'GUN', buff: 'Bullet speed +25%', defect: 'Bullet size -20%', run: () => { PLAYER_BULLET_SPEED *= 1.25; player.bulletSize *= 0.8; } },
-    { id: 'HOMING', title: 'Seeker Core', rarity: 'RARE', weapon: 'GUN', buff: 'Homing +0.15', defect: 'Damage -2', run: () => { player.homing = (player.homing || 0) + 0.15; player.damage = Math.max(1, player.damage - 2); } },
-    { id: 'SIZE', title: 'Mass Pulse', rarity: 'COMMON', buff: 'Attack size +50%', defect: 'Bullet speed -15%', run: () => { player.bulletSize = (player.bulletSize || 6) * 1.5; PLAYER_BULLET_SPEED *= 0.85; } },
-    { id: 'LIFESTEAL', title: 'Siphon Soul', rarity: 'EPIC', buff: '3% Heal chance', defect: 'Max HP -2', run: () => { player.lifesteal = (player.lifesteal || 0) + 0.03; player.maxHealth = Math.max(1, player.maxHealth - 2); player.health = Math.min(player.health, player.maxHealth); updateHealthUI(); } },
-    { id: 'PIERCE', title: 'Void Shell', rarity: 'RARE', weapon: 'GUN', buff: 'Pierce +1', defect: 'Fire rate -10%', run: () => { player.pierce = (player.pierce || 0) + 1; PLAYER_FIRE_RATE *= 1.1; } },
-    { id: 'CRIT', title: 'Logic Fault', rarity: 'EPIC', buff: '+10% Crit chance', defect: 'Base damage -1', run: () => { player.crit = (player.crit || 0) + 0.1; player.damage = Math.max(1, player.damage - 1); } },
-    { id: 'CHARGE_SHOT', title: 'Fusion Pulse', rarity: 'EPIC', weapon: 'GUN', buff: 'Enable Charge Shot', defect: 'Standard damage -2', run: () => { player.hasChargeShot = true; player.damage = Math.max(1, player.damage - 2); } },
-    { id: 'BIGGER_SIZE', title: 'Titan Core', rarity: 'RARE', weapon: 'GUN', buff: 'Bullet size +100%', defect: 'Move speed -10%', run: () => { player.bulletSize = (player.bulletSize || 6) * 2; playerMoveSpeed *= 0.9; } },
-    { id: 'MOVE_SPEED', title: 'Turbo Thruster', rarity: 'COMMON', buff: 'Move speed +30%', defect: 'Jump force -15%', run: () => { playerMoveSpeed *= 1.3; jumpForce *= 0.85; } },
-    { id: 'RICOCHET', title: 'Ricochet', rarity: 'RARE', weapon: 'GUN', buff: 'Bounce +1', defect: 'Bullet speed -20%', run: () => { player.bounces++; PLAYER_BULLET_SPEED *= 0.8; } },
-    { id: 'REAR_GUARD', title: 'Rear Guard', rarity: 'RARE', weapon: 'GUN', buff: 'Backshot +1', defect: 'Fire rate -5%', run: () => { player.backshot++; PLAYER_FIRE_RATE *= 1.05; } },
-    { id: 'JUMP_JET', title: 'Jump Jet', rarity: 'COMMON', buff: 'Jump Force +25%', defect: 'Max HP -1', run: () => { jumpForce *= 1.25; player.maxHealth = Math.max(1, player.maxHealth - 1); player.health = Math.min(player.health, player.maxHealth); updateHealthUI(); } },
-    { id: 'ARMOR', title: 'Ceramic Plate', rarity: 'RARE', buff: '20% Armor', defect: 'Move speed -10%', run: () => { player.armor = (player.armor || 0) + 0.2; playerMoveSpeed *= 0.9; } },
-    { id: 'GLASS_CANNON', title: 'Glass Cannon', rarity: 'EPIC', buff: 'Damage +20', defect: 'Max HP -5', run: () => { player.damage += 20; player.maxHealth = Math.max(1, player.maxHealth - 5); player.health = Math.min(player.health, player.maxHealth); updateHealthUI(); } },
-    { id: 'LONG_BARREL', title: 'Long Barrel', rarity: 'COMMON', weapon: 'GUN', buff: 'Range +50%', defect: 'Move speed -5%', run: () => { player.bulletLife *= 1.5; playerMoveSpeed *= 0.95; } },
-    { id: 'STEADY_AIM', title: 'Steady Aim', rarity: 'RARE', weapon: 'GUN', buff: 'Rate & Spd +20%', defect: 'Bullet size -30%', run: () => { PLAYER_FIRE_RATE *= 0.8; PLAYER_BULLET_SPEED *= 1.2; player.bulletSize *= 0.7; } },
-    { id: 'QUICK_RELOAD', title: 'Quick Fire', rarity: 'COMMON', weapon: 'GUN', buff: 'Rate +15%', defect: 'Damage -1', run: () => { PLAYER_FIRE_RATE *= 0.85; player.damage = Math.max(1, player.damage - 1); } },
-    { id: 'SOLAR_PANEL', title: 'Solar Core', rarity: 'RARE', weapon: 'GUN', buff: 'Charge Speed 1.5x', defect: 'Max HP -1', run: () => { player.chargeSpeed *= 1.5; player.maxHealth = Math.max(1, player.maxHealth - 1); player.health = Math.min(player.health, player.maxHealth); updateHealthUI(); } },
-    { id: 'HULL_HARDER', title: 'Hardened Hull', rarity: 'RARE', buff: 'Max HP +4', defect: 'Move speed -20%', run: () => { player.maxHealth += 4; player.health += 4; playerMoveSpeed *= 0.8; updateHealthUI(); } },
-    { id: 'EXPLOSIVE', title: 'Nitro Core', rarity: 'EPIC', weapon: 'GUN', buff: 'Explosions', defect: 'Fire rate -20%', run: () => { player.explosive = (player.explosive || 0) + 1; PLAYER_FIRE_RATE *= 1.25; } },
-    { id: 'SPLIT_SHOT', title: 'Fission Shell', rarity: 'EPIC', weapon: 'GUN', buff: 'Splitting Bullets', defect: 'Bullet speed -30%', run: () => { player.splitting = (player.splitting || 0) + 1; PLAYER_BULLET_SPEED *= 0.7; } },
-    { id: 'BERSERKER', title: 'Berserker Engine', rarity: 'RARE', buff: 'Rate up as HP drops', defect: 'Max HP -2', run: () => { player.berserker = 1; player.maxHealth = Math.max(1, player.maxHealth - 2); player.health = Math.min(player.health, player.maxHealth); updateHealthUI(); } },
-    { id: 'DRONE_PILOT', title: 'Drone Mk1', rarity: 'EPIC', buff: 'Tactical Drone', defect: 'Damage -5', run: () => { player.drones.push({ angle: Math.random() * Math.PI * 2, fireCooldown: 0, x: player.x, y: player.y, mk2: player.dronesMk2 }); player.damage = Math.max(1, player.damage - 5); } },
-    { id: 'FROST_ROUNDS', title: 'Cryo Core', rarity: 'RARE', weapon: 'GUN', buff: 'Freeze Bullets', defect: 'Fire rate -10%', run: () => { player.frostRounds += 0.5; PLAYER_FIRE_RATE *= 1.1; } },
-    { id: 'DRONE_PILOT_MK2', title: 'Drone Mk2', rarity: 'LEGENDARY', buff: 'Detached Drones', defect: 'Max HP -3', run: () => { player.drones.forEach(d => { d.mk2 = true; }); player.dronesMk2 = true; player.maxHealth = Math.max(1, player.maxHealth - 3); player.health = Math.min(player.health, player.maxHealth); updateHealthUI(); } },
-    { id: 'REACTIVE_ARMOR', title: 'Reactive Core', rarity: 'RARE', buff: 'Revenge Nova', defect: 'Move speed -5%', run: () => { player.reactiveArmor++; playerMoveSpeed *= 0.95; } },
-    { id: 'LAST_STAND', title: 'Final Protocol', rarity: 'LEGENDARY', buff: 'Invuln on Death', defect: 'Max HP -4', run: () => { player.lastStandUsed = false; player.maxHealth = Math.max(1, player.maxHealth - 4); player.health = Math.min(player.health, player.maxHealth); updateHealthUI(); } },
-    { id: 'TITAN_PLATE', title: 'Titan Plate', rarity: 'RARE', buff: 'Max HP +5', defect: 'Move speed -25%', run: () => { player.maxHealth += 5; player.health += 5; playerMoveSpeed *= 0.75; updateHealthUI(); } },
-    { id: 'SHARP_SHOOTER', title: 'Sharp Shooter', rarity: 'RARE', weapon: 'GUN', buff: 'Dist DMG +50%', defect: 'Bullet size -40%', run: () => { player.sharpShooter = true; player.bulletSize *= 0.6; } },
-    { id: 'SNIPER_ROUND', title: 'Sniper Core', rarity: 'EPIC', weapon: 'GUN', buff: '+Pierce & Spd', defect: 'Fire rate -30%', run: () => { player.pierce = (player.pierce || 0) + 1; PLAYER_BULLET_SPEED *= 1.5; player.damage += 10; PLAYER_FIRE_RATE *= 1.3; } },
-    { id: 'SCATTERGUN', title: 'Scatter Core', rarity: 'EPIC', weapon: 'GUN', buff: '+3 Bullets', defect: 'Damage -60%', run: () => { player.multishot += 3; player.damage = Math.max(1, player.damage * 0.4); } },
-    { id: 'WHIRLWIND', title: 'Whirlwind', rarity: 'LEGENDARY', weapon: 'SWORD', buff: '360 Hit', defect: 'Jump force -20%', run: () => { player.whirlwind = true; jumpForce *= 0.8; } },
-    { id: 'THROWING_SWORD', title: 'Spectral Blade', rarity: 'LEGENDARY', weapon: 'SWORD', buff: 'Ranged Swords', defect: 'Sword damage -5', run: () => { player.throwingSword = true; player.damage = Math.max(1, player.damage - 5); } },
-    { id: 'VAMPIRIC_STRIKE', title: 'Vampiric Edge', rarity: 'EPIC', weapon: 'SWORD', buff: 'Huge Lifesteal', defect: 'Max HP -4', run: () => { player.lifesteal = (player.lifesteal || 0) + 0.1; player.maxHealth = Math.max(1, player.maxHealth - 4); player.health = Math.min(player.health, player.maxHealth); updateHealthUI(); } },
-    { id: 'XP_BOOST', title: 'Core Extractor', rarity: 'LEGENDARY', buff: 'XP Multi +25%', defect: 'Max HP -1', run: () => { player.xpMultiplier = (player.xpMultiplier || 1.0) + 0.25; player.maxHealth = Math.max(1, player.maxHealth - 1); player.health = Math.min(player.health, player.maxHealth); updateHealthUI(); } }
+    { id: 'DAMAGE', title: 'Kinetic Amp', rarity: 'COMMON', buff: 'Core damage +5', run: () => { player.damage += 5; } },
+    { id: 'FIRE_RATE', title: 'Overclock', rarity: 'RARE', buff: 'Firing rate +25%', run: () => { PLAYER_FIRE_RATE *= 0.75; } },
+    { id: 'MULTISHOT', title: 'Split Core', rarity: 'EPIC', weapon: 'GUN', buff: '+1 Bullet', run: () => { player.multishot++; } },
+    { id: 'HEALTH', title: 'Repair Nano', rarity: 'COMMON', buff: '+2 Max HP, heal 5', run: () => { player.maxHealth += 2; player.health = Math.min(player.maxHealth, player.health + 5); updateHealthUI(); } },
+    { id: 'SPEED', title: 'Photon Accel', rarity: 'COMMON', weapon: 'GUN', buff: 'Bullet speed +25%', run: () => { PLAYER_BULLET_SPEED *= 1.25; } },
+    { id: 'HOMING', title: 'Seeker Core', rarity: 'RARE', weapon: 'GUN', buff: 'Homing +0.15', run: () => { player.homing = (player.homing || 0) + 0.15; } },
+    { id: 'SIZE', title: 'Mass Pulse', rarity: 'COMMON', buff: 'Attack size +50%', run: () => { player.bulletSize = (player.bulletSize || 6) * 1.5; } },
+    { id: 'LIFESTEAL', title: 'Siphon Soul', rarity: 'EPIC', buff: '3% Heal chance', run: () => { player.lifesteal = (player.lifesteal || 0) + 0.03; } },
+    { id: 'PIERCE', title: 'Void Shell', rarity: 'RARE', weapon: 'GUN', buff: 'Pierce +1', run: () => { player.pierce = (player.pierce || 0) + 1; } },
+    { id: 'CRIT', title: 'Logic Fault', rarity: 'EPIC', buff: '+10% Crit chance', run: () => { player.crit = (player.crit || 0) + 0.1; } },
+    { id: 'CHARGE_SHOT', title: 'Fusion Pulse', rarity: 'EPIC', weapon: 'GUN', buff: 'Enable Charge Shot', run: () => { player.hasChargeShot = true; } },
+    { id: 'BIGGER_SIZE', title: 'Titan Core', rarity: 'RARE', weapon: 'GUN', buff: 'Bullet size +100%', run: () => { player.bulletSize = (player.bulletSize || 6) * 2; } },
+    { id: 'MOVE_SPEED', title: 'Turbo Thruster', rarity: 'COMMON', buff: 'Move speed +30%', run: () => { playerMoveSpeed *= 1.3; } },
+    { id: 'RICOCHET', title: 'Ricochet', rarity: 'RARE', weapon: 'GUN', buff: 'Bounce +1', run: () => { player.bounces++; } },
+    { id: 'REAR_GUARD', title: 'Rear Guard', rarity: 'RARE', weapon: 'GUN', buff: 'Backshot +1', run: () => { player.backshot++; } },
+    { id: 'JUMP_JET', title: 'Jump Jet', rarity: 'COMMON', buff: 'Jump Force +25%', run: () => { jumpForce *= 1.25; } },
+    { id: 'ARMOR', title: 'Ceramic Plate', rarity: 'RARE', buff: '20% Armor', run: () => { player.armor = (player.armor || 0) + 0.2; } },
+    { id: 'GLASS_CANNON', title: 'Power Core', rarity: 'EPIC', buff: 'Damage +20', run: () => { player.damage += 20; } },
+    { id: 'LONG_BARREL', title: 'Long Barrel', rarity: 'COMMON', weapon: 'GUN', buff: 'Range +50%', run: () => { player.bulletLife *= 1.5; } },
+    { id: 'STEADY_AIM', title: 'Steady Aim', rarity: 'RARE', weapon: 'GUN', buff: 'Rate & Spd +20%', run: () => { PLAYER_FIRE_RATE *= 0.8; PLAYER_BULLET_SPEED *= 1.2; } },
+    { id: 'QUICK_RELOAD', title: 'Quick Fire', rarity: 'COMMON', weapon: 'GUN', buff: 'Rate +15%', run: () => { PLAYER_FIRE_RATE *= 0.85; } },
+    { id: 'SOLAR_PANEL', title: 'Solar Core', rarity: 'RARE', weapon: 'GUN', buff: 'Charge Speed 1.5x', run: () => { player.chargeSpeed *= 1.5; } },
+    { id: 'HULL_HARDER', title: 'Hardened Hull', rarity: 'RARE', buff: 'Max HP +4', run: () => { player.maxHealth += 4; player.health += 4; updateHealthUI(); } },
+    { id: 'EXPLOSIVE', title: 'Nitro Core', rarity: 'EPIC', weapon: 'GUN', buff: 'Explosions', run: () => { player.explosive = (player.explosive || 0) + 1; } },
+    { id: 'SPLIT_SHOT', title: 'Fission Shell', rarity: 'EPIC', weapon: 'GUN', buff: 'Splitting Bullets', run: () => { player.splitting = (player.splitting || 0) + 1; } },
+    { id: 'BERSERKER', title: 'Berserker Engine', rarity: 'RARE', buff: 'Rate up as HP drops', run: () => { player.berserker = 1; } },
+    { id: 'DRONE_PILOT', title: 'Drone Mk1', rarity: 'EPIC', buff: 'Tactical Drone', run: () => { player.drones.push({ angle: Math.random() * Math.PI * 2, fireCooldown: 0, x: player.x, y: player.y, mk2: player.dronesMk2 }); } },
+    { id: 'FROST_ROUNDS', title: 'Cryo Core', rarity: 'RARE', weapon: 'GUN', buff: 'Freeze Bullets', run: () => { player.frostRounds += 0.5; } },
+    { id: 'DRONE_PILOT_MK2', title: 'Drone Mk2', rarity: 'LEGENDARY', buff: 'Detached Drones', run: () => { player.drones.forEach(d => { d.mk2 = true; }); player.dronesMk2 = true; } },
+    { id: 'REACTIVE_ARMOR', title: 'Reactive Core', rarity: 'RARE', buff: 'Revenge Nova', run: () => { player.reactiveArmor++; } },
+    { id: 'LAST_STAND', title: 'Final Protocol', rarity: 'LEGENDARY', buff: 'Invuln on Death', run: () => { player.lastStandUsed = false; } },
+    { id: 'TITAN_PLATE', title: 'Titan Plate', rarity: 'RARE', buff: 'Max HP +5', run: () => { player.maxHealth += 5; player.health += 5; updateHealthUI(); } },
+    { id: 'SHARP_SHOOTER', title: 'Sharp Shooter', rarity: 'RARE', weapon: 'GUN', buff: 'Dist DMG +50%', run: () => { player.sharpShooter = true; } },
+    { id: 'SNIPER_ROUND', title: 'Sniper Core', rarity: 'EPIC', weapon: 'GUN', buff: '+Pierce & Spd', run: () => { player.pierce = (player.pierce || 0) + 1; PLAYER_BULLET_SPEED *= 1.5; player.damage += 10; } },
+    { id: 'SCATTERGUN', title: 'Scatter Core', rarity: 'EPIC', weapon: 'GUN', buff: '+3 Bullets', run: () => { player.multishot += 3; } },
+    { id: 'SHIELD_BOOST', title: 'Shield Pulse', rarity: 'LEGENDARY', buff: 'Armor +30%', run: () => { player.armor = (player.armor || 0) + 0.3; } }
 ];
 
 const BOOMERANG_UPGRADES = [
-    { id: 'BOOMERANG_EXTRA', title: 'Twin Orbit', rarity: 'EPIC', weapon: 'BOOMERANG', buff: '+1 Boomerang', defect: 'Damage -3', run: () => { player.boomerangCount++; player.boomerangDamage = Math.max(1, player.boomerangDamage - 3); } },
-    { id: 'BOOMERANG_DMG', title: 'Sharp Edge', rarity: 'COMMON', weapon: 'BOOMERANG', buff: 'DMG +10', defect: 'Speed -15%', run: () => { player.boomerangDamage += 10; player.boomerangSpeed *= 0.85; } },
-    { id: 'BOOMERANG_RANGE', title: 'Far Reach', rarity: 'COMMON', weapon: 'BOOMERANG', buff: 'Range +40%', defect: 'Return Speed -20%', run: () => { player.boomerangRange *= 1.4; player.boomerangReturnSpeed *= 0.8; } },
-    { id: 'BOOMERANG_FROST', title: 'Glacial Blade', rarity: 'RARE', weapon: 'BOOMERANG', buff: 'Freeze Hits', defect: 'Damage -5', run: () => { player.boomerangFrost += 0.3; player.boomerangDamage = Math.max(1, player.boomerangDamage - 5); } },
-    { id: 'BOOMERANG_SPEED', title: 'Quick Return', rarity: 'RARE', weapon: 'BOOMERANG', buff: 'Speed +30%', defect: 'Size -20%', run: () => { player.boomerangSpeed *= 1.3; player.boomerangReturnSpeed *= 1.3; player.boomerangSize *= 0.8; } }
+    { id: 'BOOMERANG_EXTRA', title: 'Twin Orbit', rarity: 'EPIC', weapon: 'BOOMERANG', buff: '+1 Boomerang', run: () => { player.boomerangCount++; } },
+    { id: 'BOOMERANG_DMG', title: 'Sharp Edge', rarity: 'COMMON', weapon: 'BOOMERANG', buff: 'DMG +10', run: () => { player.boomerangDamage += 10; } },
+    { id: 'BOOMERANG_RANGE', title: 'Far Reach', rarity: 'COMMON', weapon: 'BOOMERANG', buff: 'Range +40%', run: () => { player.boomerangRange *= 1.4; } },
+    { id: 'BOOMERANG_FROST', title: 'Glacial Blade', rarity: 'RARE', weapon: 'BOOMERANG', buff: 'Freeze Hits', run: () => { player.boomerangFrost += 0.3; } },
+    { id: 'BOOMERANG_SPEED', title: 'Quick Return', rarity: 'RARE', weapon: 'BOOMERANG', buff: 'Speed +30%', run: () => { player.boomerangSpeed *= 1.3; player.boomerangReturnSpeed *= 1.3; } }
 ];
 
 const GRENADE_UPGRADES = [
-    { id: 'GRENADE_COUNT', title: 'Cluster Pack', rarity: 'EPIC', weapon: 'GRENADE', buff: '+1 Grenade', defect: 'Radius -20%', run: () => { player.grenadeCount++; player.grenadeRadius *= 0.8; } },
-    { id: 'GRENADE_RADIUS', title: 'Blast Shield', rarity: 'RARE', weapon: 'GRENADE', buff: 'Radius +50%', defect: 'Damage -10', run: () => { player.grenadeRadius *= 1.5; player.grenadeDamage = Math.max(1, player.grenadeDamage - 10); } },
-    { id: 'GRENADE_DMG', title: 'Heavy Payload', rarity: 'COMMON', weapon: 'GRENADE', buff: 'DMG +20', defect: 'Bounces -1', run: () => { player.grenadeDamage += 20; player.grenadeBounces = Math.max(0, player.grenadeBounces - 1); } },
-    { id: 'GRENADE_FRAG', title: 'Shrapnel', rarity: 'EPIC', weapon: 'GRENADE', buff: 'Release Fragments', defect: 'Radius -30%', run: () => { player.grenadeFrags += 4; player.grenadeRadius *= 0.7; } },
-    { id: 'GRENADE_BOUNCE', title: 'Rubber Shell', rarity: 'COMMON', weapon: 'GRENADE', buff: 'Extra Bounce', defect: 'Damage -5', run: () => { player.grenadeBounces++; player.grenadeDamage = Math.max(1, player.grenadeDamage - 5); } }
+    { id: 'GRENADE_COUNT', title: 'Cluster Pack', rarity: 'EPIC', weapon: 'GRENADE', buff: '+1 Grenade', run: () => { player.grenadeCount++; } },
+    { id: 'GRENADE_RADIUS', title: 'Blast Shield', rarity: 'RARE', weapon: 'GRENADE', buff: 'Radius +50%', run: () => { player.grenadeRadius *= 1.5; } },
+    { id: 'GRENADE_DMG', title: 'Heavy Payload', rarity: 'COMMON', weapon: 'GRENADE', buff: 'DMG +20', run: () => { player.grenadeDamage += 20; } },
+    { id: 'GRENADE_FRAG', title: 'Shrapnel', rarity: 'EPIC', weapon: 'GRENADE', buff: 'Release Fragments', run: () => { player.grenadeFrags += 4; } },
+    { id: 'GRENADE_BOUNCE', title: 'Rubber Shell', rarity: 'COMMON', weapon: 'GRENADE', buff: 'Extra Bounce', run: () => { player.grenadeBounces++; } }
 ];
 
-const WAND_UPGRADES = [
-    { id: 'WAND_AUTO', title: 'Sentient Will', rarity: 'LEGENDARY', weapon: 'WAND', buff: 'Faster Homing', defect: 'Damage -5', run: () => { player.wandHomingPower = (player.wandHomingPower || 1) * 2; player.damage = Math.max(1, player.damage - 5); } },
-    { id: 'WAND_ORBIT', title: 'Arcane Orbit', rarity: 'EPIC', weapon: 'WAND', buff: '+1 Orb', defect: 'Size -20%', run: () => { player.multishot++; player.bulletSize *= 0.8; } },
-    { id: 'WAND_LURK', title: 'Ghost Flame', rarity: 'RARE', weapon: 'WAND', buff: 'Duration +100%', defect: 'Fire rate -15%', run: () => { player.bulletLife *= 2; PLAYER_FIRE_RATE *= 1.15; } },
-    { id: 'WAND_SPLAT', title: 'Mana Burst', rarity: 'RARE', weapon: 'WAND', buff: 'Size +50%', defect: 'Move speed -5%', run: () => { player.bulletSize *= 1.5; playerMoveSpeed *= 0.95; } }
-];
-
-const ALL_UPGRADES = [...UPGRADES, ...BOOMERANG_UPGRADES, ...GRENADE_UPGRADES, ...WAND_UPGRADES];
-
-function checkLevelUp() {
-    let reqXP = Math.floor(3.0 * Math.pow(currentLevel, 2)); // Increased from 1.8 for hard mode
-    if (currentXP >= reqXP && gameState === 'PLAYING') {
-        currentLevel++;
-        showUpgradeScreen();
-    }
-}
+const ALL_UPGRADES = [...UPGRADES, ...BOOMERANG_UPGRADES, ...GRENADE_UPGRADES];
 
 function showUpgradeScreen() {
     gameState = 'UPGRADE';
@@ -1691,21 +1540,10 @@ function showUpgradeScreen() {
     // Check constraints
     let validUpgrades = [...ALL_UPGRADES];
     validUpgrades = validUpgrades.filter(u => {
-        // Exclusivity: Weapon-specific cards only show for that weapon
-        if (u.weapon && u.weapon !== player.weaponType) {
-            // Special case: Spectral Blade allows Gun cards
-            if (player.throwingSword && u.weapon === 'GUN') {
-                // Allow
-            } else {
-                return false;
-            }
-        }
-        
-        // Logical constraints
+        if (u.weapon && u.weapon !== player.weaponType) return false;
         if (u.id === 'DRONE_PILOT_MK2') {
             if (!player.drones || player.drones.length === 0 || player.dronesMk2) return false;
         }
-        
         return true;
     });
     
@@ -1714,293 +1552,40 @@ function showUpgradeScreen() {
     const selection = shuffled.slice(0, 3);
     
     selection.forEach(up => {
-        let displayBuff = up.buff || "---";
-        let displayDefect = up.defect || "---";
-        let displayTitle = up.title;
-        
-        if (player.weaponType === 'SWORD' && !player.throwingSword) {
-            if (up.id === 'FIRE_RATE') displayBuff = 'Swing speed +25%';
-            if (up.id === 'MULTISHOT') { displayTitle = 'Dual Edge'; displayBuff = 'Wider swing arc'; }
-            if (up.id === 'SPEED') { displayTitle = 'Long Reach'; displayBuff = 'Sword length +25%'; }
-            if (up.id === 'HOMING') { displayTitle = 'Lunge Core'; displayBuff = 'Lunge toward boss on swing'; }
-            if (up.id === 'SIZE') displayBuff = 'Sword width/impact +50%';
-            if (up.id === 'CHARGE_SHOT') { displayTitle = 'Fusion Blade'; displayBuff = 'Hold to charge heavy swing'; }
-            if (up.id === 'LONG_BARREL') displayBuff = 'Sword length +50%';
-            if (up.id === 'STEADY_AIM') displayBuff = 'Swing speed & Spd +20%';
-            if (up.id === 'QUICK_RELOAD') displayBuff = 'Swing speed +15%';
-            if (up.id === 'FROST_ROUNDS') displayBuff = 'Hits slow boss attacks';
-            if (up.id === 'SHARP_SHOOTER') { displayTitle = 'Executioner'; displayBuff = 'DMG +50% to distant bosses'; }
-        }
-
-        if (player.weaponType === 'GRENADE') {
-            if (up.id === 'FIRE_RATE') displayBuff = 'Throw rate +25%';
-            if (up.id === 'SIZE') { displayTitle = 'Big Bang'; displayBuff = 'Explosion radius +50%'; }
-            if (up.id === 'DAMAGE') displayBuff = 'Explosion damage +5';
-        }
-
         const card = document.createElement('div');
         card.className = `upgrade-card ${up.rarity}`;
         card.innerHTML = `
             <div class="rarity">${up.rarity}</div>
-            <h3 style="margin-bottom: 5px;">${displayTitle}</h3>
+            <h3 style="margin-bottom: 5px;">${up.title}</h3>
             <div style="text-align: left; background: rgba(46, 213, 115, 0.1); padding: 5px; border-radius: 4px; margin-bottom: 5px; font-size: 11px;">
                 <span style="color: #2ed573; font-weight: bold; font-size: 9px; display: block;">Buff:</span>
-                ${displayBuff}
-            </div>
-            <div style="text-align: left; background: rgba(255, 71, 87, 0.1); padding: 5px; border-radius: 4px; font-size: 11px;">
-                <span style="color: #ff4757; font-weight: bold; font-size: 9px; display: block;">Downside:</span>
-                ${displayDefect}
+                ${up.buff}
             </div>
             <div class="rarity" style="opacity: 0.3; margin-top: 10px;">SELECT</div>
         `;
         card.onclick = () => {
             up.run();
-            // Track for inventory
+            multiplayer.selectedUpgrade = up.id;
             player.upgrades[up.id] = (player.upgrades[up.id] || 0) + 1;
-            
-            // Track in collection index
-            const collected = JSON.parse(localStorage.getItem('collectedUpgrades') || '[]');
-            if (!collected.includes(up.id)) {
-                collected.push(up.id);
-                localStorage.setItem('collectedUpgrades', JSON.stringify(collected));
-            }
             screen.style.display = 'none';
-            gameState = 'PLAYING';
-            if (!boss || boss.health <= 0 || boss.state === 'DYING') {
-                spawnNextBoss();
-            }
-            checkLevelUp();
-            sfx.portal();
+            
+            // Wait for both players to pick if needed, or just proceed
+            notifyPick();
         };
         container.appendChild(card);
     });
     sfx.win();
 }
 
-// --- INDEX MENU ---
-window.showIndex = function() {
-    document.getElementById('title-screen').style.display = 'none';
-    document.getElementById('index-screen').style.display = 'flex';
-    const grid = document.getElementById('index-grid');
-    grid.innerHTML = '';
-    const collected = JSON.parse(localStorage.getItem('collectedUpgrades') || '[]');
-    
-    ALL_UPGRADES.forEach(up => {
-        const isCollected = collected.includes(up.id);
-        const el = document.createElement('div');
-        el.className = `upgrade-card ${up.rarity}`;
-        el.style.opacity = isCollected ? '1.0' : '0.2';
-        el.style.filter = isCollected ? 'none' : 'grayscale(100%)';
-        el.style.transform = 'none';
-        el.style.cursor = 'default';
-        el.innerHTML = `
-            <div class="rarity">${up.rarity}</div>
-            <h3 style="font-size: 14px;">${isCollected ? up.title : '???'}</h3>
-            <p style="font-size: 10px;">${isCollected ? (up.buff + " | " + up.defect) : 'Unlocked by finding in runs'}</p>
-        `;
-        grid.appendChild(el);
-    });
-};
-
-// --- SANDBOX MODE ---
-window.showSandbox = function() {
-    document.getElementById('title-screen').style.display = 'none';
-    const screen = document.getElementById('sandbox-screen');
-    screen.style.display = 'flex';
-    
-    // Populate Upgrades
-    const upList = document.getElementById('sandbox-upgrades-list');
-    upList.innerHTML = '';
-    ALL_UPGRADES.forEach(up => {
-        const lbl = document.createElement('label');
-        lbl.style.display = 'flex';
-        lbl.style.alignItems = 'center';
-        lbl.style.gap = '10px';
-        lbl.style.fontSize = '12px';
-        lbl.title = up.buff + " | " + up.defect; // Add tooltip for hover
-        lbl.innerHTML = `<input type="number" min="0" max="100" value="0" class="sandbox-up-input" data-id="${up.id}" style="width: 45px; background: #333; color: white; border: 1px solid #555; border-radius: 4px; padding: 2px;"> <span>${up.title}</span>`;
-        upList.appendChild(lbl);
-    });
-
-    // Populate Attacks
-    const atkList = document.getElementById('sandbox-attacks-list');
-    atkList.innerHTML = '';
-    const attackDescs = {
-        'BURST': 'Fires a fast shotgun blast of bullets',
-        'TRIPLE_SHOT': 'Fires 3 continuous targeted shots',
-        'WAVE': 'Fires an expanding wave of bullets',
-        'SINE': 'Shoots waving, oscillating streams',
-        'BOUNCE': 'Fires large bouncing energy orbs',
-        'WALL_STRIKE': 'Summons a barrier that closes in',
-        'CHARGE': 'Boss dashes rapidly at the player',
-        'BEAM_PREP': 'Charges and fires a massive continuous death ray',
-        'MINES': 'Scatters explosive proximity mines',
-        'SPIRAL': 'Spins and unleashes a bullet hell spiral',
-        'SLAM_PREP': 'Leaps into the air and slams down heavily',
-        'SUMMON': 'Spawns small minion enemies',
-        'LAVA_PREP': 'Floods the lower arena with burning lava',
-        'PHASE_SHIFT': 'Teleports rapidly and turns translucent',
-        'ORBITAL_STRIKE': 'Calls down explosive pillars of light',
-        'GRAVITY_WELL': 'Generates a pull that sucks the player in',
-        'RING_SHOCK': 'Flashes rings that pulse outwards',
-        'CROSS_BEAM': 'Creates intercepting laser grid lines',
-        'STALACTITE': 'Drops debris from the ceiling',
-        'SUMMON_MINION': 'Calls a specialized minion to assist',
-        'METEOR_SHOWER': 'Calls down a rain of diagonal meteor strikes',
-        'LASER_GRID': 'Flashes horizontal and vertical instant death beams'
-    };
-    
-    Object.keys(attackDescs).forEach(a => {
-        const lbl = document.createElement('label');
-        lbl.style.display = 'flex';
-        lbl.style.alignItems = 'center';
-        lbl.style.gap = '5px';
-        lbl.title = attackDescs[a]; // Add tooltip for hover
-        lbl.innerHTML = `<input type="checkbox" value="${a}" class="sandbox-atk-cb" checked> <span>${a}</span>`;
-        atkList.appendChild(lbl);
-    });
-};
-
-window.startSandboxRun = function() {
-    const atkCbs = document.querySelectorAll('.sandbox-atk-cb:checked');
-    if (atkCbs.length === 0) {
-        alert("Please select at least 1 boss attack.");
-        return;
-    }
-    sandboxAttacks = Array.from(atkCbs).map(cb => cb.value);
-    
-    document.getElementById('sandbox-screen').style.display = 'none';
-    document.getElementById('win-screen').style.display = 'none';
-    document.getElementById('title-screen').style.display = 'none';
-    document.getElementById('ui').style.display = 'block';
-    
-    isInfiniteMode = false;
-    isSandboxMode = true;
-    defeatedBossesCount = 0;
-    gameState = 'PLAYING';
-    startTime = Date.now();
-    timerRunning = false;
-    timerFinished = false;
-    
-    initLevel();
-
-    // Apply selected upgrades
-    const upInputs = document.querySelectorAll('.sandbox-up-input');
-    upInputs.forEach(input => {
-        const count = parseInt(input.value) || 0;
-        if (count > 0) {
-            const up = UPGRADES.find(u => u.id === input.dataset.id);
-            if (up) {
-                for (let i = 0; i < count; i++) {
-                    up.run();
-                    player.upgrades[up.id] = (player.upgrades[up.id] || 0) + 1;
-                }
-            }
-        }
-    });
-};
-
-function spawnNextBoss() {
-    if (isInfiniteMode) {
-        defeatedBossesCount++;
-        document.getElementById('infinite-counter').innerText = `DEFEATED: ${defeatedBossesCount}`;
-        if (defeatedBossesCount % 100 === 0) {
-            boss = createCheeseLord(Math.pow(1.25, defeatedBossesCount), Math.pow(1.10, defeatedBossesCount));
-        } else {
-            boss = createInfiniteBoss();
-        }
-        player.bullets = [];
-        updateHealthUI();
-        setShake(20, 0.5);
-        sfx.portal();
-        respawn();
-        return;
-    }
-    rushIndex++;
-    if (rushIndex < BOSS_DATA.length) {
-        boss = createBoss(rushIndex);
-        player.bullets = [];
-        updateHealthUI();
-        setShake(20, 0.5);
-        sfx.portal();
-        respawn(); // Reset player to safe spawn point
-    } else {
-        nextLevel();
+async function notifyPick() {
+    if (multiplayer.roomId) {
+        multiplayer.waitingForReady = true;
+        // Optimization: In a real game we'd wait for both. 
+        // For simplicity, we'll just start the next round when the local player picks.
+        startNextRound();
     }
 }
 
-function bossTakeDamage(target, amount = player.damage) {
-    if (target.state === 'DYING' || target.health <= 0) return;
-    amount *= 0.4; // Reduced player damage scaling for more challenge (from 0.5)
-    target.health -= amount;
-    target.hitResonance = BOSS_HIT_RESONANCE;
-    setShake(5, 0.1);
-    spawnParticles(target.x + target.width/2, target.y + target.height/2, target.color, 10);
-    
-    // Spawn small XP orb from hit
-    if (Math.random() < 0.2) { // Reduced drop rate for harder progression (from 0.3)
-        xpOrbs.push({
-            x: target.x + target.width / 2,
-            y: target.y + target.height / 2,
-            vx: (Math.random() - 0.5) * 400,
-            vy: -Math.random() * 300 - 100,
-            value: 0.05, // Drastically reduced XP per hit for hard mode
-            homingDelay: 0.5
-        });
-    }
-
-    updateHealthUI();
-
-    if (player.frostRounds) {
-        target.slowTimer = Math.min(2.0, (target.slowTimer || 0) + 0.2);
-    }
-
-    if (target.traits && target.traits.includes('REACTIVE') && Math.random() < 0.25) {
-        const pdx = (player.x + player.width/2) - (target.x + target.width/2);
-        const pdy = (player.y + player.height/2) - (target.y + target.height/2);
-        const pdist = Math.sqrt(pdx*pdx + pdy*pdy);
-        if (pdist > 0) {
-            target.projectiles = target.projectiles || [];
-            target.projectiles.push({
-                x: target.x + target.width/2, y: target.y + target.height/2,
-                vx: (pdx/pdist) * 450, vy: (pdy/pdist) * 450,
-                radius: 10, life: 3, type: 'NORMAL'
-            });
-        }
-    }
-    
-    const phases = target.phases;
-    const healthRatio = target.health / target.maxHealth;
-    if (phases) {
-        for (let i = 0; i < phases.length; i++) {
-            if (healthRatio <= phases[i].threshold) {
-                target.phase = i;
-            }
-        }
-    }
-    
-    if (target.health <= 0) {
-        target.state = 'DYING';
-        target.attackTimer = 2.5;
-        sfx.win();
-        
-        // Final burst of XP Orbs
-        for(let i=0; i<15; i++) {
-            xpOrbs.push({
-                x: target.x + target.width / 2,
-                y: target.y + target.height / 2,
-                vx: (Math.random() - 0.5) * 600,
-                vy: -Math.random() * 500 - 200,
-                value: 0.2, 
-                homingDelay: 1.0 + Math.random() * 1.5 
-            });
-        }
-        // Release buffered XP
-        currentXP += bufferedXP;
-        bufferedXP = 0;
-        checkLevelUp();
-    }
-}
 
 function respawn() {
     player.x = spawnPoint.x;
@@ -2280,7 +1865,7 @@ function update(timestamp) {
     lastTime = timestamp;
 
     if (gameState !== 'PLAYING') {
-        if (gameState === 'UPGRADE' || gameState === 'PAUSED_INVENTORY') {
+        if (gameState === 'UPGRADE' || gameState === 'PAUSED_INVENTORY' || gameState === 'ROUND_OVER') {
             draw();
         }
         requestAnimationFrame(update);
@@ -2288,7 +1873,6 @@ function update(timestamp) {
     }
 
     if (dialogueActive) {
-        lastTime = timestamp;
         requestAnimationFrame(update);
         return;
     }
@@ -2299,71 +1883,31 @@ function update(timestamp) {
     // --- MULTIPLAYER UPDATE ---
     if (multiplayer.status === 'playing' && multiplayer.roomId) {
         updateMultiplayer(dt);
-        // Skip normal boss logic
-    } else {
-        // --- 0. BOSS LOGIC ---
-        if (boss) updateBossEntity(boss);
-        if (isSandboxMode && boss2) updateBossEntity(boss2);
     }
 
-    function updateBossEntity(b) {
-        if (!b) return;
-        const _dt = dt; // store original dt
-        dt = _dt * (b.speedMod || 1.0); // scale up boss perceived time
-
-        if (b.hitResonance > 0) b.hitResonance -= _dt;
-        if (b.slowTimer > 0) b.slowTimer -= _dt;
-
-        let effectiveDt = dt;
-        if (b.slowTimer > 0) effectiveDt *= 0.6;
-
-        if (b.traits && b.traits.includes('DEPRESSED') && b.state !== 'DYING') {
-            b.state = 'DEPRESSED';
+    if (player.invuln > 0) player.invuln -= dt;
+    if (player.fireCooldown > 0) player.fireCooldown -= dt;
+    
+    // Update Sword
+    if (player.weaponType === 'SWORD' && player.isSwinging) {
+        player.swingProgress += dt * (1.0 / (PLAYER_FIRE_RATE || 0.4));
+        if (player.swingProgress >= 1.0) {
+            player.isSwinging = false;
+            player.swingProgress = 0;
         }
+    }
 
-        // --- NEW TRAIT LOGIC ---
-        if (b.traits && b.traits.includes('STATIC')) {
-            b.staticTimer = (b.staticTimer || 0) + dt;
-            if (b.staticTimer > 3.0) {
-                b.staticTimer = 0;
-                for (let i = 0; i < 12; i++) {
-                    const ang = (i / 12) * Math.PI * 2;
-                    b.projectiles.push({
-                        x: b.x + b.width/2, y: b.y + b.height/2,
-                        vx: Math.cos(ang) * 300, vy: Math.sin(ang) * 300,
-                        radius: 12, life: 2, type: 'NORMAL', color: '#00d2ff'
-                    });
-                }
-            }
-        }
-        if (b.traits && b.traits.includes('ORBITAL')) {
-            if (!b.orbitPoints) {
-                b.orbitPoints = [];
-                for (let i = 0; i < 3; i++) {
-                    b.orbitPoints.push({ angle: (i/3) * Math.PI * 2 });
-                }
-            }
-            b.orbitPoints.forEach(orb => {
-                orb.angle += dt * 3;
-                const ox = b.x + b.width/2 + Math.cos(orb.angle) * (b.width * 0.8 + 20);
-                const oy = b.y + b.height/2 + Math.sin(orb.angle) * (b.width * 0.8 + 20);
-                const dx = (player.x + player.width/2) - ox;
-                const dy = (player.y + player.height/2) - oy;
-                if (Math.sqrt(dx*dx + dy*dy) < 20) playerTakeDamage();
-                
-                // Draw orbital logic (this is in update, but we should handle damage here)
-            });
-        }
-        if (b.traits && b.traits.includes('TELEPORT')) {
-            b.teleTimer = (b.teleTimer || 0) + dt;
-            if (b.teleTimer > 5.0) {
-                b.teleTimer = 0;
-                b.x = Math.random() * (canvas.width - b.width - 40) + 20;
-                b.y = Math.random() * 150 + 50;
-                setShake(10, 0.2);
-                spawnParticles(b.x + b.width/2, b.y + b.height/2, b.color, 15);
-            }
-        }
+    if (dt > 0.1) dt = 0.1;
+    gameTime += dt * 2; 
+
+    // --- MULTIPLAYER UPDATE ---
+    if (multiplayer.status === 'playing' && multiplayer.roomId) {
+        updateMultiplayer(dt);
+    }
+
+
+
+        if (player.invuln > 0) player.invuln -= dt;
 
         if (b.state === 'IDLE') {
             b.attackTimer -= effectiveDt;
@@ -2372,61 +1916,7 @@ function update(timestamp) {
             const spawnX = b.spawnX;
             b.targetX = spawnX + Math.cos(gameTime * 0.5) * 80;
             b.x += (b.targetX - b.x) * effectiveDt * 2;
-            b.y += (b.targetY - b.y) * effectiveDt * 2;
 
-            if (b.attackTimer <= 0) {
-                const pool = (b.phases && b.phases[b.phase || 0]) ? b.phases[b.phase || 0].attacks : ['BURST'];
-                b.state = pool[Math.floor(Math.random() * pool.length)];
-                
-                if (b.state === 'BURST') b.attackTimer = 1.5;
-                else if (b.state === 'TRIPLE_SHOT') b.attackTimer = 1.0;
-                else if (b.state === 'WAVE') b.attackTimer = 1.5;
-                else if (b.state === 'SINE') b.attackTimer = 2.0;
-                else if (b.state === 'BOUNCE') b.attackTimer = 1.8;
-                else if (b.state === 'WALL_STRIKE') b.attackTimer = 1.0;
-                else if (b.state === 'RING_SHOCK') b.attackTimer = 1.5;
-                else if (b.state === 'CROSS_BEAM') b.attackTimer = 2.0;
-                else if (b.state === 'STALACTITE') b.attackTimer = 2.0;
-                else if (b.state === 'SUMMON_MINION') {
-                    b.attackTimer = 0.5;
-                }
-                else if (b.state === 'CHARGE') {
-                    b.attackTimer = 1.0;
-                    b.targetX = player.x;
-                    b.targetY = player.y;
-                } else if (b.state === 'BEAM_PREP') {
-                    b.attackTimer = 1.5;
-                    b.beam.x1 = b.x + b.width/2;
-                    b.beam.y1 = b.y + b.height/2;
-                    b.beam.targetX = player.x + player.width/2;
-                    b.beam.targetY = player.y + player.height/2;
-                } else if (b.state === 'MINES') {
-                    b.attackTimer = 0.5;
-                } else if (b.state === 'SPIRAL') {
-                    b.attackTimer = 2.0;
-                } else if (b.state === 'SLAM_PREP') {
-                    b.attackTimer = 1.0;
-                    b.targetX = player.x;
-                    b.targetY = 50;
-                } else if (b.state === 'SUMMON') {
-                    b.attackTimer = 0.5;
-                } else if (b.state === 'LAVA_PREP') {
-                    b.attackTimer = 1.5;
-                    lavaFlash = 1.5;
-                } else if (b.state === 'ORBITAL_STRIKE') {
-                    b.attackTimer = 2.0;
-                    b.targetX = player.x;
-                } else if (b.state === 'GRAVITY_WELL') {
-                    b.attackTimer = 3.0;
-                } else if (b.state === 'PHASE_SHIFT') {
-                    b.attackTimer = 2.0;
-                } else if (b.state === 'METEOR_SHOWER') {
-                    b.attackTimer = 2.0;
-                } else if (b.state === 'LASER_GRID') {
-                    b.attackTimer = 0.5;
-                }
-            }
-        } else if (b.state === 'RING_SHOCK') {
             b.attackTimer -= effectiveDt;
             if (Math.floor(b.attackTimer * 10) % 3 === 0 && b.attackTimer > 0) {
                 for (let i = 0; i < 16; i++) {
@@ -3054,11 +2544,12 @@ function update(timestamp) {
                 setShake(10, 0.2);
                 sfx.land();
                 spawnParticles(p.x, p.y, '#f39c12', 30);
-                if (boss && boss.health > 0) {
-                    const bdx = (boss.x + boss.width/2) - p.x;
-                    const bdy = (boss.y + boss.height/2) - p.y;
-                    if (Math.sqrt(bdx*bdx + bdy*bdy) < (player.grenadeRadius || 100) + boss.width/2) {
-                        bossTakeDamage(boss, player.damage);
+                if (multiplayer.opponent && multiplayer.opponent.health > 0) {
+                    const dx = (multiplayer.opponent.x + 15) - p.x;
+                    const dy = (multiplayer.opponent.y + 15) - p.y;
+                    if (Math.sqrt(dx*dx + dy*dy) < (player.grenadeRadius || 100) + 15) {
+                        // Explosion visual only for now, damage handled by playerTakeDamage
+                        spawnParticles(p.x, p.y, '#f39c12', 20);
                     }
                 }
                 if (player.grenadeFrags > 0) {
@@ -3094,16 +2585,14 @@ function update(timestamp) {
             // Damage timer to avoid everyframe hit
             if (p.damageTimer > 0) p.damageTimer -= dt;
             
-            // Collision with boss
-            if (boss && boss.health > 0 && boss.state !== 'DYING' && p.damageTimer <= 0) {
-                 const bdx = (boss.x + boss.width/2) - p.x;
-                 const bdy = (boss.y + boss.height/2) - p.y;
-                 if (Math.sqrt(bdx*bdx + bdy*bdy) < p.radius + boss.width/2) {
-                     bossTakeDamage(boss, player.damage);
+            // Collision with opponent (Visual Only)
+            if (multiplayer.roomId && multiplayer.opponentState && p.damageTimer <= 0) {
+                 const opp = multiplayer.opponentState;
+                 const odx = (opp.x + player.width/2) - p.x;
+                 const ody = (opp.y + player.height/2) - p.y;
+                 if (Math.sqrt(odx*odx + ody*ody) < p.radius + player.width/3) {
+                     spawnParticles(p.x, p.y, '#ff4757', 10);
                      p.damageTimer = 0.15;
-                     if (player.boomerangFrost) {
-                         boss.slowTimer = Math.max(boss.slowTimer || 0, player.boomerangFrost);
-                     }
                  }
             }
             return true;
@@ -3112,9 +2601,10 @@ function update(timestamp) {
         if (p.isWand) {
             p.life -= dt;
             p.initialDelay -= dt;
-            if (p.initialDelay <= 0 && boss && boss.health > 0) {
-                const dx = (boss.x + boss.width/2) - p.x;
-                const dy = (boss.y + boss.height/2) - p.y;
+            if (p.initialDelay <= 0 && multiplayer.opponentState) {
+                const opp = multiplayer.opponentState;
+                const dx = (opp.x + player.width/2) - p.x;
+                const dy = (opp.y + player.height/2) - p.y;
                 const dist = Math.sqrt(dx*dx + dy*dy);
                 const targetVx = (dx/dist) * (player.wandArcaneSpeed || 500);
                 const targetVy = (dy/dist) * (player.wandArcaneSpeed || 500);
@@ -3127,30 +2617,33 @@ function update(timestamp) {
             p.x += p.vx * dt;
             p.y += p.vy * dt;
 
-            // Collision
-            if (boss && boss.health > 0 && boss.state !== 'DYING') {
-                const bdx = (boss.x + boss.width/2) - p.x;
-                const bdy = (boss.y + boss.height/2) - p.y;
-                if (Math.sqrt(bdx*bdx + bdy*bdy) < p.radius + boss.width/2) {
-                    bossTakeDamage(boss, player.damage * 0.8);
+            // Collision with opponent (Visual Only)
+            if (multiplayer.roomId && multiplayer.opponentState) {
+                const opp = multiplayer.opponentState;
+                const odx = (opp.x + player.width/2) - p.x;
+                const ody = (opp.y + player.height/2) - p.y;
+                if (Math.sqrt(odx*odx + ody*ody) < p.radius + player.width/3) {
                     spawnParticles(p.x, p.y, '#ff00ff', 10);
-                    return false; // Arcane orbs disappear on hit usually or pierce? Disappear for balance.
+                    return false; 
                 }
             }
             return p.life > 0;
         }
 
-        // Homing
-        if (player.homing && boss && boss.health > 0) {
-            const dx = (boss.x + boss.width/2) - p.x;
-            const dy = (boss.y + boss.height/2) - p.y;
+        // Homing towards opponent
+        if (player.homing && multiplayer.opponentState) {
+            const opp = multiplayer.opponentState;
+            const dx = (opp.x + player.width/2) - p.x;
+            const dy = (opp.y + player.height/2) - p.y;
             const dist = Math.sqrt(dx*dx + dy*dy);
             p.vx += (dx/dist) * PLAYER_BULLET_SPEED * player.homing * dt;
             p.vy += (dy/dist) * PLAYER_BULLET_SPEED * player.homing * dt;
             // Cap speed
             const speed = Math.sqrt(p.vx**2 + p.vy**2);
-            p.vx = (p.vx/speed) * PLAYER_BULLET_SPEED;
-            p.vy = (p.vy/speed) * PLAYER_BULLET_SPEED;
+            if (speed > 0) {
+                p.vx = (p.vx/speed) * PLAYER_BULLET_SPEED;
+                p.vy = (p.vy/speed) * PLAYER_BULLET_SPEED;
+            }
         }
 
         p.x += p.vx * dt;
@@ -3171,35 +2664,17 @@ function update(timestamp) {
             }
         }
         
-        // Check collision with boss
-        if (boss && boss.health > 0 && boss.state !== 'DYING') {
-            const dx = (boss.x + boss.width/2) - p.x;
-            const dy = (boss.y + boss.height/2) - p.y;
+        // Check collision with opponent (Visual Only)
+        if (multiplayer.roomId && multiplayer.opponentState) {
+            const opp = multiplayer.opponentState;
+            const dx = (opp.x + player.width/2) - p.x;
+            const dy = (opp.y + player.height/2) - p.y;
             const dist = Math.sqrt(dx*dx + dy*dy);
-            if (dist < p.radius + boss.width/2) {
-                let dmg = player.damage * (p.damageScale || 1);
+            if (dist < p.radius + player.width/3) {
+                spawnParticles(p.x, p.y, '#fff', 10);
                 
-                if (player.sharpShooter) {
-                    if (dist > 300) dmg *= 1.5;
-                }
-
-                if (player.crit && Math.random() < player.crit) {
-                    dmg *= 3;
-                    spawnParticles(p.x, p.y, '#fff', 20);
-                }
-                
-                bossTakeDamage(boss, dmg);
-                
-                if (player.lifesteal && Math.random() < player.lifesteal) {
-                    if (player.health < player.maxHealth) {
-                        player.health++;
-                        updateHealthUI();
-                    }
-                }
-
                 if (player.explosive) {
                     explosions.push({ x: p.x, y: p.y, radius: 0, maxRadius: 80, life: 0.4, color: '#ff4757' });
-                    bossTakeDamage(boss, player.damage * 0.5);
                     setShake(5, 0.1);
                 }
 
@@ -3738,23 +3213,6 @@ function draw() {
     ctx.fillStyle = "#111";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Lava Floor
-    if (lavaTimer > 0) {
-        ctx.fillStyle = '#ff4757';
-        ctx.globalAlpha = 0.3 + Math.sin(gameTime * 10) * 0.2;
-        ctx.fillRect(0, 380, canvas.width, 20);
-        
-        ctx.shadowBlur = 40;
-        ctx.shadowColor = '#ff4757';
-        ctx.fillRect(0, 375, canvas.width, 5);
-        ctx.globalAlpha = 1;
-        ctx.shadowBlur = 0;
-    } else if (lavaFlash > 0) {
-        ctx.fillStyle = '#ff4757';
-        ctx.globalAlpha = 0.1 * (Math.floor(gameTime * 10) % 2);
-        ctx.fillRect(0, 380, canvas.width, 20);
-        ctx.globalAlpha = 1;
-    }
     
     ctx.strokeStyle = "rgba(255, 255, 255, 0.03)";
     ctx.lineWidth = 1;
@@ -3798,19 +3256,6 @@ function draw() {
     });
     ctx.globalAlpha = 1;
 
-    // Draw XP Orbs
-    xpOrbs.forEach(orb => {
-        ctx.fillStyle = orb.value >= 1 ? '#00FF00' : '#80FF80'; // Minecraft EXP green
-        ctx.shadowBlur = 8;
-        ctx.shadowColor = '#00FF00';
-        ctx.beginPath();
-        // Little wobbling diamonds/circles
-        let renderRad = orb.value >= 1 ? 5 : 3;
-        renderRad += Math.sin(gameTime * 20 + orb.x) * 1;
-        ctx.arc(orb.x, orb.y, renderRad, 0, Math.PI*2);
-        ctx.fill();
-    });
-    ctx.shadowBlur = 0;
     
     worldObjects.forEach(obj => {
         ctx.save();
@@ -3911,58 +3356,6 @@ function draw() {
     });
     ctx.globalAlpha = 1;
 
-    // Draw Opponent
-    if (multiplayer.status === 'playing' && multiplayer.opponentState) {
-        const os = multiplayer.opponentState;
-        // Basic interpolation
-        if (!multiplayer.interpolatedOpponent) {
-            multiplayer.interpolatedOpponent = { x: os.x, y: os.y };
-        }
-        multiplayer.interpolatedOpponent.x += (os.x - multiplayer.interpolatedOpponent.x) * 0.3;
-        multiplayer.interpolatedOpponent.y += (os.y - multiplayer.interpolatedOpponent.y) * 0.3;
-        
-        drawPlayerAvatar(ctx, multiplayer.interpolatedOpponent.x, multiplayer.interpolatedOpponent.y, 30, 30, '#ff4757', 'STARE');
-        
-        // Draw Opponent Bullets
-        if (os.bullets) {
-            os.bullets.forEach(b => {
-                ctx.fillStyle = '#ff4757';
-                ctx.shadowBlur = 10;
-                ctx.shadowColor = '#ff4757';
-                ctx.beginPath();
-                ctx.arc(b.x, b.y, b.radius || 6, 0, Math.PI * 2);
-                ctx.fill();
-            });
-        }
-        
-        // Update opponent health UI
-        const p2Container = document.getElementById('player2-health-container');
-        if (p2Container) {
-            p2Container.innerHTML = '';
-            for (let i = 0; i < 10; i++) {
-                const pip = document.createElement('div');
-                pip.classList.add('health-pip');
-                if (i >= (os.health || 0)) pip.classList.add('empty');
-                p2Container.appendChild(pip);
-            }
-        }
-
-        // Collision with opponent bullets
-        if (os.bullets && player.invuln <= 0 && player.health > 0) {
-            os.bullets.forEach(b => {
-                const dx = b.x - (player.x + player.width/2);
-                const dy = b.y - (player.y + player.height/2);
-                if (Math.sqrt(dx*dx + dy*dy) < (b.radius || 6) + 15) {
-                    playerTakeDamage('opponent');
-                }
-            });
-        }
-        
-        // Check if opponent died
-        if (os.health <= 0 && multiplayer.status === 'playing') {
-            multiplayerWin();
-        }
-    }
 
     // Draw Player
     if (player.invuln > 0 && Math.floor(gameTime * 20) % 2 === 0) {
@@ -4109,463 +3502,25 @@ function draw() {
             ctx.fillRect(d.x - 2, d.y - 2, 4, 4);
         });
     }
+    // Draw Opponent
+    if (multiplayer.opponent) {
+        // Interpolation for smoother movement
+        const opp = multiplayer.opponent;
+        drawPlayerAvatar(ctx, opp.x, opp.y, 30, 30, opp.color || '#ff4757', opp.eyeStyle || 'NORMAL');
 
-    // Draw Bosses
-    function drawBossEntity(b) {
-        if (b.health <= 0 && b.state !== 'DYING') return;
-
-        ctx.save();
-        ctx.translate(b.x + b.width/2, b.y + b.height/2);
-        
-        // Attack Telegraphs
-        if ((b.state === 'CHARGE' || b.state === 'BEAM_PREP' || b.state === 'ORBITAL_STRIKE') && b.attackTimer > 0) {
-            ctx.strokeStyle = (b.state === 'BEAM_PREP' || b.state === 'ORBITAL_STRIKE') ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 71, 87, 0.3)';
-            ctx.setLineDash([5, 5]);
-            ctx.beginPath();
-            ctx.moveTo(0, 0);
-            
-            if (b.state === 'ORBITAL_STRIKE') {
-                const screenTargetX = b.targetX - (b.x + b.width/2);
-                ctx.moveTo(screenTargetX, -b.y - b.height/2);
-                ctx.lineTo(screenTargetX, canvas.height);
-            } else {
-                const targetX = b.state === 'BEAM_PREP' ? b.beam.targetX : b.targetX;
-                const targetY = b.state === 'BEAM_PREP' ? b.beam.targetY : b.targetY;
-                ctx.lineTo(targetX - (b.x + b.width/2), targetY - (b.y + b.height/2));
-            }
-            ctx.stroke();
-            ctx.setLineDash([]);
-        }
-
-        if (b.state === 'CROSS_BEAM') {
-            ctx.strokeStyle = 'rgba(255, 0, 0, 0.3)';
-            ctx.lineWidth = 1;
-            ctx.setLineDash([10, 5]);
-            // Horizontal line
-            ctx.beginPath();
-            ctx.moveTo(-b.x - b.width/2, b.crossY - (b.y + b.height/2));
-            ctx.lineTo(canvas.width, b.crossY - (b.y + b.height/2));
-            ctx.stroke();
-            // Vertical line
-            ctx.beginPath();
-            ctx.moveTo(b.crossX - (b.x + b.width/2), -b.y - b.height/2);
-            ctx.lineTo(b.crossX - (b.x + b.width/2), canvas.height);
-            ctx.stroke();
-            ctx.setLineDash([]);
-            
-            if (b.attackTimer <= 0.5 && b.attackTimer > 0) {
-                ctx.lineWidth = 40 * (b.attackTimer / 0.5);
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+        // Draw Opponent Bullets
+        if (opp.bullets) {
+            opp.bullets.forEach(b => {
+                ctx.fillStyle = '#ff4757';
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = '#ff4757';
                 ctx.beginPath();
-                ctx.moveTo(-b.x - b.width/2, b.crossY - (b.y + b.height/2));
-                ctx.lineTo(canvas.width, b.crossY - (b.y + b.height/2));
-                ctx.stroke();
-                ctx.beginPath();
-                ctx.moveTo(b.crossX - (b.x + b.width/2), -b.y - b.height/2);
-                ctx.lineTo(b.crossX - (b.x + b.width/2), canvas.height);
-                ctx.stroke();
-            }
-        }
-
-        if (b.state === 'STALACTITE' && b.attackTimer > 0) {
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-            ctx.fillRect(-b.x - b.width/2, -b.y - b.height/2, canvas.width, 10);
-            if (Math.floor(gameTime * 10) % 2 === 0) {
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-                ctx.fillRect(-b.x - b.width/2, -b.y - b.height/2, canvas.width, 4);
-            }
-        }
-
-        if (b.state === 'GRAVITY_WELL') {
-            ctx.strokeStyle = b.color;
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(0, 0, 150 + Math.sin(gameTime * 15) * 30, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.globalAlpha = 0.1;
-            ctx.fillStyle = b.color;
-            ctx.fill();
-            ctx.globalAlpha = 1.0;
-        }
-
-        // Minions draw handled recursively or via loop below but keeping the legacy box rendering as fallback (wait, we shouldn't keep the legacy box rendering if we call drawBossEntity)
-        if (b.minions) {
-            b.minions.forEach(m => {
-                drawBossEntity(m); // Recursively call the draw function to render all minions properties the exact same way like projectiles and seekers!
+                ctx.arc(b.x, b.y, b.radius || 6, 0, Math.PI * 2);
+                ctx.fill();
             });
         }
-
-        // Beam Attack
-        if (b.state === 'BEAM_FIRE') {
-            ctx.save();
-            ctx.strokeStyle = b === boss ? '#00d2ff' : '#ffa502';
-            ctx.lineWidth = 40 * (b.attackTimer / 1.2);
-            ctx.globalAlpha = 0.8;
-            ctx.shadowBlur = 30;
-            ctx.shadowColor = ctx.strokeStyle;
-            ctx.beginPath();
-            ctx.moveTo(0, 0);
-            ctx.lineTo(b.beam.targetX - (b.x + b.width/2), b.beam.targetY - (b.y + b.height/2));
-            ctx.stroke();
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = ctx.lineWidth * 0.4;
-            ctx.stroke();
-            ctx.restore();
-        }
-
-        ctx.fillStyle = b.color;
-        ctx.shadowBlur = 20;
-        ctx.shadowColor = b.color;
-        
-        if (b.state === 'DYING') {
-            ctx.globalAlpha = Math.random();
-        } else if (b.traits && b.traits.includes('GHOST')) {
-            ctx.globalAlpha = 0.5;
-        }
-        
-        if (b.traits && b.traits.includes('TELEPORT')) {
-            ctx.translate((Math.random()-0.5)*10, (Math.random()-0.5)*10);
-            if (Math.random() < 0.1) ctx.globalAlpha *= 0.5;
-        }
-        
-        // Animation based on state (Squash, stretch, rotation)
-        let stateScaleX = 1;
-        let stateScaleY = 1;
-        let stateAngle = 0;
-        
-        if (b.state === 'BURST' || b.state === 'SLAM_PREP' || b.state === 'CHARGE') {
-            stateScaleX = 1.2;
-            stateScaleY = 0.8;
-            if (b.state === 'SLAM_PREP' && b.attackTimer < 0.5) stateScaleY = 1.5;
-        } else if (b.state === 'TRIPLE_SHOT' || b.state === 'SINE') {
-            stateScaleX = 0.9;
-            stateScaleY = 1.1;
-        } else if (b.state === 'WAVE' || b.state === 'SPIRAL') {
-            stateAngle = gameTime * 5;
-        } else if (b.state === 'BOUNCE' || b.state === 'DEPRESSED') {
-            stateScaleX = 1.3;
-            stateScaleY = 0.7;
-        }
-
-        ctx.rotate(stateAngle);
-
-        // Hit resonance flash
-        if (b.hitResonance > 0) {
-            ctx.fillStyle = '#fff';
-            ctx.shadowColor = '#fff';
-        } else {
-            let bodyColor = b.color;
-            if (b.traits) {
-                if (b.traits.includes('RAGE')) bodyColor = '#ff4757';
-                else if (b.traits.includes('STONE')) bodyColor = '#7f8c8d';
-                else if (b.traits.includes('HEAL')) bodyColor = '#2ecc71';
-                else if (b.traits.includes('CHILL')) bodyColor = '#00d2ff';
-                else if (b.traits.includes('GHOST')) bodyColor = 'rgba(255,255,255,0.8)';
-            }
-            ctx.fillStyle = bodyColor;
-            ctx.shadowColor = bodyColor;
-        }
-
-        // Rhythmic Core
-        const scale = 1 + Math.sin(gameTime * 5) * 0.1;
-        ctx.scale(scale * stateScaleX, scale * stateScaleY);
-        
-        if (!b.isCheeseSub) {
-            ctx.fillRect(-b.width/2, -b.height/2, b.width, b.height);
-            
-            // Inner flair and visual state adjustments
-            ctx.fillStyle = b.state === 'BEAM_PREP' || b.state === 'BEAM_FIRE' ? (b === boss ? '#00d2ff' : '#ffa502') : '#fff';
-            ctx.fillRect(-b.width/4, -b.height/4, b.width/2, b.height/2);
-
-            // Cheese Lord visuals
-            if (b.isCheeseLord) {
-                // Crown
-                ctx.fillStyle = '#f39c12';
-                ctx.beginPath();
-                ctx.moveTo(-b.width/2, -b.height/2);
-                ctx.lineTo(-b.width/2, -b.height/2 - 30);
-                ctx.lineTo(-b.width/4, -b.height/2 - 15);
-                ctx.lineTo(0, -b.height/2 - 35);
-                ctx.lineTo(b.width/4, -b.height/2 - 15);
-                ctx.lineTo(b.width/2, -b.height/2 - 30);
-                ctx.lineTo(b.width/2, -b.height/2);
-                ctx.fill();
-                // Scepter
-                ctx.fillStyle = '#8e44ad';
-                ctx.fillRect(b.width/2 + 5, -b.height/2 - 20, 10, b.height + 40);
-                ctx.fillStyle = '#ff4757';
-                ctx.beginPath();
-                ctx.arc(b.width/2 + 10, -b.height/2 - 20, 15, 0, Math.PI * 2);
-                ctx.fill();
-            }
-
-            // Traits Face visuals
-        if (b.traits) {
-            ctx.fillStyle = '#000';
-            ctx.strokeStyle = '#000';
-            ctx.lineWidth = 2;
-            ctx.save();
-            ctx.shadowBlur = 0;
-            const ts = b.traits;
-            
-            if (ts.includes('DEPRESSED')) {
-                ctx.beginPath();
-                ctx.arc(-b.width/6, -b.height/6, 3, 0, Math.PI, true);
-                ctx.arc(b.width/6, -b.height/6, 3, 0, Math.PI, true);
-                ctx.stroke();
-                ctx.fillStyle = '#00d2ff'; // tear
-                ctx.fillRect(-b.width/6, 0, 3, 6);
-                ctx.fillRect(b.width/6, 2, 3, 6);
-            } else if (ts.includes('TRIUMVIRATE')) {
-                ctx.beginPath();
-                ctx.arc(-b.width/5, -b.height/6, 4, 0, Math.PI*2);
-                ctx.arc(b.width/5, -b.height/6, 4, 0, Math.PI*2);
-                ctx.arc(0, -b.height/3, 4, 0, Math.PI*2);
-                ctx.fill();
-            } else if (ts.includes('RAGE')) {
-                ctx.beginPath();
-                ctx.moveTo(-b.width/4, -b.height/3); ctx.lineTo(-b.width/8, -b.height/6);
-                ctx.moveTo(b.width/4, -b.height/3); ctx.lineTo(b.width/8, -b.height/6);
-                ctx.stroke();
-                ctx.fillRect(-b.width/6, -b.height/5, 4, 4);
-                ctx.fillRect(b.width/6 - 4, -b.height/5, 4, 4);
-            } else if (ts.includes('HOMING')) {
-                ctx.beginPath();
-                ctx.arc(-b.width/6, -b.height/8, 5, 0, Math.PI*2);
-                ctx.arc(b.width/6, -b.height/8, 5, 0, Math.PI*2);
-                ctx.stroke();
-                ctx.fillStyle = '#ff0000';
-                ctx.fillRect(-b.width/6 - 1, -b.height/8 - 1, 2, 2);
-                ctx.fillRect(b.width/6 - 1, -b.height/8 - 1, 2, 2);
-            } else if (ts.includes('BOOMERANG')) {
-                ctx.beginPath();
-                ctx.arc(-b.width/6, -b.height/8, 5, 0, Math.PI, true);
-                ctx.arc(b.width/6, -b.height/8, 5, 0, Math.PI, true);
-                ctx.stroke();
-            } else if (ts.includes('STONE')) {
-                ctx.fillStyle = '#555';
-                ctx.fillRect(-b.width/6, -b.height/6, 6, 6);
-                ctx.fillRect(b.width/6 - 6, -b.height/6, 6, 6);
-                ctx.fillRect(-b.width/4, b.height/8, b.width/2, 4);
-            } else if (ts.includes('SHARP')) {
-                ctx.beginPath();
-                ctx.moveTo(-b.width/6, -b.height/6); ctx.lineTo(-b.width/8, -b.height/4); ctx.lineTo(-b.width/10, -b.height/6);
-                ctx.moveTo(b.width/6, -b.height/6); ctx.lineTo(b.width/8, -b.height/4); ctx.lineTo(b.width/10, -b.height/6);
-                ctx.fill();
-            } else if (ts.includes('HEAL')) {
-                ctx.fillStyle = '#2ecc71';
-                ctx.fillRect(-b.width/6, -b.height/6 - 2, 4, 8);
-                ctx.fillRect(-b.width/6 - 2, -b.height/6, 8, 4);
-                ctx.fillRect(b.width/6, -b.height/6 - 2, 4, 8);
-                ctx.fillRect(b.width/6 - 2, -b.height/6, 8, 4);
-            } else if (ts.includes('CHILL')) {
-                ctx.fillStyle = '#000';
-                ctx.fillRect(-b.width/3, -b.height/4, b.width*0.66, 8);
-            } else if (ts.includes('BOUNCY')) {
-                ctx.beginPath();
-                ctx.arc(-b.width/6, -b.height/6, 5, 0, Math.PI*2);
-                ctx.arc(b.width/6, -b.height/6, 5, 0, Math.PI*2);
-                ctx.stroke();
-                ctx.fillStyle = '#e67e22';
-                ctx.fill();
-            } else if (ts.includes('GHOST')) {
-                ctx.globalAlpha = 0.6;
-                ctx.fillStyle = '#000';
-                ctx.beginPath();
-                ctx.arc(-b.width/6, -b.height/6, 4, 0, Math.PI*2);
-                ctx.arc(b.width/6, -b.height/6, 4, 0, Math.PI*2);
-                ctx.fill();
-                ctx.fillRect(-b.width/4, b.height/4, b.width/2, b.height/4);
-                ctx.globalAlpha = 1.0;
-            }
-
-            if (ts.includes('REACTIVE')) {
-                ctx.fillStyle = '#ff4757';
-                for (let i = 0; i < 4; i++) {
-                    ctx.save();
-                    ctx.rotate(i * Math.PI / 2);
-                    ctx.fillRect(-2, -b.height/2 - 10, 4, 15);
-                    ctx.restore();
-                }
-            }
-            if (ts.includes('STATIC')) {
-                ctx.strokeStyle = '#00d2ff';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                for (let i = 0; i < 6; i++) {
-                    const ang = (i/6) * Math.PI * 2 + gameTime * 10;
-                    ctx.moveTo(Math.cos(ang) * b.width/2, Math.sin(ang) * b.width/2);
-                    ctx.lineTo(Math.cos(ang) * (b.width/2 + 15), Math.sin(ang) * (b.width/2 + 15));
-                }
-                ctx.stroke();
-            }
-            if (ts.includes('ORBITAL')) {
-                if (b.orbitPoints) {
-                    b.orbitPoints.forEach(orb => {
-                        ctx.save();
-                        ctx.rotate(orb.angle - stateAngle); 
-                        ctx.fillStyle = '#ffa502';
-                        ctx.shadowBlur = 10;
-                        ctx.shadowColor = '#ffa502';
-                        ctx.beginPath();
-                        ctx.arc(b.width * 0.8 + 20, 0, 8, 0, Math.PI * 2);
-                        ctx.fill();
-                        ctx.restore();
-                    });
-                }
-            }
-            
-            ctx.restore();
-        }
-        }
-
-        // State-specific visual changes
-        ctx.save();
-        if (b.state === 'BURST') {
-            const charge = 1.5 - b.attackTimer; 
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 4;
-            ctx.beginPath();
-            ctx.arc(0, 0, b.width * (0.5 + charge), 0, Math.PI * 2);
-            ctx.stroke();
-        } else if (b.state === 'TRIPLE_SHOT') {
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-            ctx.beginPath();
-            ctx.moveTo(0, -b.height/2 - 10);
-            ctx.lineTo(-20, -b.height/2 - 30);
-            ctx.lineTo(20, -b.height/2 - 30);
-            ctx.fill();
-        } else if (b.state === 'WAVE' || b.state === 'SPIRAL') {
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            const timeAng = gameTime * 10;
-            for(let i=0; i<3; i++) {
-                ctx.arc(0, 0, b.width/2 + 10 + i*5, timeAng + i, timeAng + i + Math.PI);
-            }
-            ctx.stroke();
-        } else if (b.state === 'SINE') {
-            ctx.strokeStyle = 'cyan';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            for(let i = -b.width/2; i <= b.width/2; i+=5) {
-                ctx.lineTo(i, Math.sin(gameTime * 20 + i*0.2) * 20);
-            }
-            ctx.stroke();
-        } else if (b.state === 'BOUNCE') {
-            ctx.fillStyle = '#00d2ff';
-            ctx.fillRect(-b.width/3, -b.height/3 - Math.sin(gameTime*20)*10, b.width/1.5, b.height/1.5);
-        } else if (b.state === 'WALL_STRIKE' || b.state === 'LASER_GRID' || b.state === 'CROSS_BEAM') {
-            ctx.strokeStyle = 'yellow';
-            ctx.lineWidth = 5;
-            ctx.beginPath();
-            ctx.moveTo(0, -b.height); ctx.lineTo(0, b.height);
-            ctx.moveTo(-b.width, 0); ctx.lineTo(b.width, 0);
-            ctx.stroke();
-        } else if (b.state === 'CHARGE' || b.state === 'SLAM_PREP' || b.state === 'SLAM') {
-            ctx.strokeStyle = '#ff4757';
-            ctx.lineWidth = Math.random() * 5 + 2;
-            ctx.strokeRect(-b.width/2 - 10, -b.height/2 - 10, b.width + 20, b.height + 20);
-        } else if (b.state === 'MINES' || b.state === 'SUMMON' || b.state === 'SUMMON_MINION') {
-            // Draw a magic wand!
-            ctx.save();
-            ctx.rotate(Math.sin(gameTime * 10) * 0.5);
-            ctx.fillStyle = '#8e44ad';
-            ctx.fillRect(b.width/2, -b.height/2, 5, 40);
-            ctx.fillStyle = '#f1c40f';
-            ctx.beginPath();
-            ctx.arc(b.width/2 + 2.5, -b.height/2, 10, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
-        } else if (b.state === 'LAVA_PREP' || b.state === 'METEOR_SHOWER' || b.state === 'STALACTITE') {
-            ctx.fillStyle = '#e67e22';
-            ctx.beginPath();
-            ctx.moveTo(0, -b.height/2 - 20 - Math.random() * 10);
-            ctx.lineTo(-15, -b.height/2);
-            ctx.lineTo(15, -b.height/2);
-            ctx.fill();
-        } else if (b.state === 'GRAVITY_WELL' || b.state === 'MAGNET' || b.state === 'RING_SHOCK') {
-            ctx.strokeStyle = '#a29bfe';
-            ctx.lineWidth = 4;
-            ctx.beginPath();
-            ctx.arc(0, 0, b.width/2 + Math.abs(Math.sin(gameTime*5))*20, 0, Math.PI * 2);
-            ctx.stroke();
-        } else if (b.state === 'PHASE_SHIFT' || b.state === 'ORBITAL_STRIKE') {
-            ctx.globalAlpha = 0.5 + Math.sin(gameTime*20)*0.5;
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(-b.width, -b.height, b.width*2, b.height*2);
-            ctx.globalAlpha = 1.0;
-        }
-
-        ctx.restore();
-        
-        ctx.restore();
-
-        // Determine opacity
-        const projAlpha = (b.traits && b.traits.includes('GHOST')) ? 0.4 : 1.0;
-        
-        ctx.globalAlpha = projAlpha;
-
-        // Projectiles
-        b.projectiles.forEach(p => {
-            ctx.fillStyle = p.type === 'LARGE' ? '#ffa502' : b.color;
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = ctx.fillStyle;
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-            ctx.fill();
-        });
-
-        // Mines
-        b.mines.forEach(m => {
-            ctx.save();
-            ctx.translate(m.x, m.y);
-            if (m.state === 'READY') {
-                ctx.fillStyle = b.color;
-                ctx.shadowBlur = 15;
-                ctx.shadowColor = b.color;
-                const scale = 0.8 + Math.sin(gameTime * 8) * 0.2;
-                ctx.scale(scale, scale);
-                ctx.beginPath();
-                ctx.arc(0, 0, m.radius, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.fillStyle = '#fff';
-                ctx.beginPath();
-                ctx.arc(0, 0, m.radius/2, 0, Math.PI * 2);
-                ctx.fill();
-            } else {
-                ctx.fillStyle = 'rgba(255, 255, 255, ' + (m.timer / 0.5) + ')';
-                ctx.shadowBlur = 40;
-                ctx.shadowColor = '#fff';
-                ctx.beginPath();
-                ctx.arc(0, 0, 60, 0, Math.PI * 2);
-                ctx.fill();
-            }
-            ctx.restore();
-        });
-        
-        ctx.globalAlpha = 1.0;
     }
 
-    drawBossEntity(boss);
-
-    // Draw Seekers
-    if (boss) {
-        ctx.globalAlpha = (boss.traits && boss.traits.includes('GHOST')) ? 0.4 : 1.0;
-        boss.seekers.forEach(s => {
-            ctx.fillStyle = '#fff';
-            ctx.shadowBlur = 15;
-            ctx.shadowColor = boss.color;
-            ctx.beginPath();
-            ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Trail
-            addTrail(s.x - s.radius, s.y - s.radius, s.radius*2, s.radius*2, boss.color);
-        });
-        ctx.globalAlpha = 1.0;
-    }
-    
     ctx.restore();
 }
 

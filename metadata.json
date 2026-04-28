@@ -1,6 +1,6 @@
 {
-  "name": "1v1",
-  "description": "An intense boss fight arena game with fast-paced dash combat.",
+  "name": "PvP Arena",
+  "description": "An intense 1v1 PvP arena game with real-time multiplayer combat and round-based upgrades.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }
