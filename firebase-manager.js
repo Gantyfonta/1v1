@@ -27,7 +27,7 @@ export { onAuthStateChanged };
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
 export const OperationType = {
   CREATE: 'create',
@@ -122,14 +122,15 @@ export async function joinRoom(roomId) {
         }
 
         if (!data.players.includes(user.uid)) {
-            await updateDoc(roomRef, {
+            const updates = {
                 players: arrayUnion(user.uid),
                 [`playerNames.${user.uid}`]: user.displayName
-            });
-            // Check if we should start
+            };
+            // If there's 1 player already, adding 1 more makes it 2, so start the game
             if (data.players.length === 1) {
-                await updateDoc(roomRef, { status: 'playing' });
+                updates.status = 'playing';
             }
+            await updateDoc(roomRef, updates);
         }
         return data;
     } catch (error) {

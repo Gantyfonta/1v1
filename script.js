@@ -267,13 +267,6 @@ async function leaveRoom() {
     showTitle();
 }
 
-window.signIn = signIn;
-window.signOut = signOut;
-window.showLobby = showLobby;
-window.createRoom = createRoom;
-window.quickJoin = quickJoin;
-window.leaveRoom = leaveRoom;
-
 // --- 1. SETTINGS & VARIABLES ---
 let mobileMode = localStorage.getItem('platformer_mobile') === 'true';
 let sfxEnabled = localStorage.getItem('platformer_sfx') !== 'false';
@@ -4732,6 +4725,16 @@ window.toggleSFX = toggleSFX;
 window.setPlayerSize = setPlayerSize;
 window.openDialogue = openDialogue;
 window.closeDialogue = closeDialogue;
+
+// Multiplayer Exports
+window.signIn = signIn;
+window.signOut = signOut;
+window.showLobby = showLobby;
+window.createRoom = createRoom;
+window.quickJoin = quickJoin;
+window.leaveRoom = leaveRoom;
+window.joinRoom = joinRoom;
+window.enterRoom = enterRoom;
 
 // Initialization
 checkOnboarding();
