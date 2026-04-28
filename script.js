@@ -832,7 +832,8 @@ function showTitle() {
     gameState = 'TITLE';
     document.getElementById('title-screen').style.display = 'flex';
     document.getElementById('controls-screen').style.display = 'none';
-    document.getElementById('admin-panel').style.display = 'none';
+    const adminPanel = document.getElementById('admin-panel');
+    if (adminPanel) adminPanel.style.display = 'none';
     document.getElementById('credits-screen').style.display = 'none';
     const indexScreen = document.getElementById('index-screen');
     if (indexScreen) indexScreen.style.display = 'none';
@@ -1348,9 +1349,9 @@ function updateMultiplayer(dt) {
     }
 
     // Check if opponent bullets hit us
-    if (multiplayer.opponent && multiplayer.opponent.bullets && player.health > 0 && player.invuln <= 0) {
-        for (let i = 0; i < multiplayer.opponent.bullets.length; i++) {
-            const b = multiplayer.opponent.bullets[i];
+    if (multiplayer.opponentState && multiplayer.opponentState.bullets && player.health > 0 && player.invuln <= 0) {
+        for (let i = 0; i < multiplayer.opponentState.bullets.length; i++) {
+            const b = multiplayer.opponentState.bullets[i];
             const dx = (player.x + player.width/2) - b.x;
             const dy = (player.y + player.height/2) - b.y;
             const dist = Math.sqrt(dx*dx + dy*dy);
@@ -1362,7 +1363,7 @@ function updateMultiplayer(dt) {
     }
 
     // Check if opponent died (they will report it themselves, but we can detect it here for UI)
-    if (multiplayer.opponent && multiplayer.opponent.health <= 0 && gameState === 'PLAYING') {
+    if (multiplayer.opponentState && multiplayer.opponentState.health <= 0 && gameState === 'PLAYING') {
         handleRoundEnd(true); // Opponent lost, so we won the round
     }
 }
