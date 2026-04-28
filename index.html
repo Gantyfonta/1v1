@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Untitled Boss Fight</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <div id="ui" style="display: none;">
+            <div class="ui-panel">
+                <div id="player-health-container">
+                    <div class="health-pip"></div>
+                    <div class="health-pip"></div>
+                    <div class="health-pip"></div>
+                    <div class="health-pip"></div>
+                    <div class="health-pip"></div>
+                    <div class="health-pip"></div>
+                    <div class="health-pip"></div>
+                    <div class="health-pip"></div>
+                    <div class="health-pip"></div>
+                    <div class="health-pip"></div>
+                </div>
+                <div id="rush-counter" style="color: rgba(255,255,255,0.4); font-size: 12px; font-weight: bold; font-variant-numeric: tabular-nums;">BOSS 1 OF 2</div>
+                <div id="infinite-counter" style="display: none; color: #ffa502; font-size: 12px; font-weight: bold; font-variant-numeric: tabular-nums;">DEFEATED: 0</div>
+                <div id="timer-display">00:00.00</div>
+                <div style="width: 100px; text-align: right;">
+                    <button onclick="toggleInventory()" style="padding: 4px 8px; font-size: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: white; cursor: pointer;">INVENTORY [TAB]</button>
+                    <div id="boss-traits-display" style="color: rgba(255,255,255,0.6); font-size: 9px; text-align: right; margin-top: 4px; text-transform: uppercase; line-height: 1.2;"></div>
+                </div> 
+            </div>
+            
+            <!-- Opponent UI for Multiplayer -->
+            <div id="player2-ui" style="display: none; justify-content: flex-end; align-items: center; margin-top: 10px; pointer-events: none;">
+                <div style="text-align: right; margin-right: 15px;">
+                    <div id="player2-name" style="font-size: 14px; font-weight: bold; color: var(--accent-red); margin-bottom: 5px;">OPPONENT</div>
+                    <div id="player2-health-container" style="display: flex; gap: 5px; justify-content: flex-end;">
+                        <!-- Health pips added by script -->
+                    </div>
+                </div>
+            </div>
+
+            <div id="boss-health-container">
+                <div id="boss-health-bar"></div>
+                <div id="boss-name" style="font-size: 10px; color: rgba(255,255,255,0.5); text-align: right; margin-top: 2px; text-transform: uppercase; letter-spacing: 1px;">ALPHA CORE</div>
+                <div id="boss-trait-icons" style="display: flex; gap: 4px; justify-content: flex-end; margin-top: 2px;"></div>
+            </div>
+        </div>
+        <div id="xp-container" style="position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); width: 400px; max-width: 80vw; display: none; pointer-events: none;">
+            <div style="font-size: 10px; color: #a29bfe; font-weight: bold; margin-bottom: 2px; text-align: center; letter-spacing: 1px;">LEVEL <span id="xp-level">1</span></div>
+            <div style="width: 100%; background: rgba(0,0,0,0.5); height: 6px; border-radius: 3px; overflow: hidden; border: 1px solid rgba(162, 155, 254, 0.3);">
+                <div id="xp-bar" style="width: 0%; height: 100%; background: #a29bfe; box-shadow: 0 0 10px #a29bfe; transition: width 0.3s ease;"></div>
+            </div>
+        </div>
+
+        <!-- Inventory Menu -->
+        <div id="inventory-screen" class="overlay" style="display: none; background: rgba(10, 10, 10, 0.8);">
+            <h2>CURRENT UPGRADES</h2>
+            <div id="inventory-list" style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-width: 800px; max-height: 400px; overflow-y: auto;">
+                <!-- Filled by JS -->
+            </div>
+            <button onclick="toggleInventory()" style="margin-top: 20px; background: #555; box-shadow: 0 4px #333;">Close</button>
+        </div>
+
+        <!-- Title Screen -->
+        <div id="title-screen" class="overlay">
+            <h1>UNTITLED 1V1 ARENA</h1>
+            <p>Battle other players in real-time</p>
+            
+            <div id="auth-container" style="margin-bottom: 20px;">
+                <button id="login-btn" onclick="signIn()" style="background: #4285F4; box-shadow: 0 4px #357abd;">Sign in with Google</button>
+                <div id="user-info" style="display: none; align-items: center; gap: 10px; background: rgba(255,255,255,0.1); padding: 5px 15px; border-radius: 20px;">
+                    <img id="user-avatar" src="" style="width: 24px; height: 24px; border-radius: 50%;">
+                    <span id="user-name" style="font-size: 14px;"></span>
+                    <button onclick="signOut()" style="font-size: 10px; padding: 2px 6px; background: rgba(255,0,0,0.3);">Sign Out</button>
+                </div>
+            </div>
+
+            <div class="menu-buttons" id="main-menu-buttons">
+                <button onclick="showLobby()" style="background: #e67e22; box-shadow: 0 4px #d35400;">BATTLE 1v1</button>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="startGame()" style="flex: 1;">Single Player</button>
+                    <button onclick="showSandbox()" style="background: #9b59b6; box-shadow: 0 4px #8e44ad; flex: 1;">Sandbox</button>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin: 10px 0;">
+                    <button id="weapon-gun" onclick="selectWeapon('GUN')" style="border: 2px solid var(--accent-blue);">GUN</button>
+                    <button id="weapon-sword" onclick="selectWeapon('SWORD')" style="opacity: 0.5;">SWORD</button>
+                    <button id="weapon-boomerang" onclick="selectWeapon('BOOMERANG')" style="opacity: 0.5;">BOOMERANG</button>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="showControls()" style="flex: 1;">Controls</button>
+                    <button id="avatar-btn" onclick="showAvatarEditor()" style="flex: 1; background: #27ae60; box-shadow: 0 4px #219150;">Avatar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Lobby Screen -->
+        <div id="lobby-screen" class="overlay" style="display: none;">
+            <h2>MULTIPLAYER LOBBY</h2>
+            <div id="rooms-container" style="width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px;">
+                <button onclick="createRoom()" style="background: #27ae60; box-shadow: 0 4px #219150;">Create Private Room</button>
+                <button onclick="quickJoin()" style="background: #3498db; box-shadow: 0 4px #2980b9;">Quick Join Match</button>
+                <div id="room-list" style="max-height: 200px; overflow-y: auto; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; display: none;">
+                    <!-- List of joinable rooms -->
+                </div>
+            </div>
+            <button onclick="showTitle()" style="background: #555; box-shadow: 0 4px #333;">Back to Menu</button>
+        </div>
+
+        <!-- Room Waiting Screen -->
+        <div id="room-waiting-screen" class="overlay" style="display: none;">
+            <p style="color: var(--accent-gold); letter-spacing: 2px;">WAITING FOR OPPONENT</p>
+            <h2 id="room-id-display">ROOM: ####</h2>
+            <div style="display: flex; gap: 40px; margin: 30px 0; align-items: center;">
+                <div id="player-1-slot" class="lobby-player-slot">
+                    <div class="slot-avatar"></div>
+                    <p class="slot-name">PLAYER 1</p>
+                </div>
+                <div style="font-size: 24px; font-weight: bold; color: rgba(255,255,255,0.2);">VS</div>
+                <div id="player-2-slot" class="lobby-player-slot">
+                    <div class="slot-avatar">?</div>
+                    <p class="slot-name">WAITING...</p>
+                </div>
+            </div>
+            <button onclick="leaveRoom()" style="background: #ff4757; box-shadow: 0 4px #ff6b81;">Leave Room</button>
+        </div>
+
+        <!-- Index Screen -->
+        <div id="index-screen" class="overlay" style="display: none;">
+            <h2>UPGRADE INDEX</h2>
+            <div id="index-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-height: 400px; overflow-y: auto; width: 80%; max-width: 600px; margin-bottom: 20px; padding-right: 10px;">
+                <!-- Filled by JS -->
+            </div>
+            <button onclick="showTitle()" style="background: #555; box-shadow: 0 4px #333;">Back to Menu</button>
+        </div>
+
+        <!-- Avatar Editor Screen -->
+        <div id="avatar-screen" class="overlay" style="display: none;">
+            <h2>AVATAR EDITOR</h2>
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 20px; width: 300px;">
+                <div id="avatar-preview-container" style="width: 100px; height: 100px; background: rgba(255,255,255,0.05); border: 2px solid rgba(255,255,255,0.2); border-radius: 12px; display: flex; justify-content: center; align-items: center;">
+                    <canvas id="avatarCanvas" width="60" height="60"></canvas>
+                </div>
+                
+                <div style="width: 100%; text-align: left;">
+                    <p style="margin: 0 0 10px 0; font-size: 14px; color: var(--accent-gold);">BODY COLOR</p>
+                    <div id="color-options" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;">
+                        <!-- Filled by JS -->
+                    </div>
+                </div>
+
+                <div style="width: 100%; text-align: left;">
+                    <p style="margin: 0 0 10px 0; font-size: 14px; color: var(--accent-gold);">EYE STYLE</p>
+                    <div id="eye-options" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                        <!-- Filled by JS -->
+                    </div>
+                </div>
+
+                <div style="width: 100%; text-align: left;">
+                    <p style="margin: 0 0 10px 0; font-size: 14px; color: var(--accent-gold);">HAT</p>
+                    <div id="hat-options" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                        <!-- Filled by JS -->
+                    </div>
+                </div>
+            </div>
+            <button onclick="showTitle()" style="margin-top: 30px; background: #555; box-shadow: 0 4px #333;">Back to Menu</button>
+        </div>
+
+        <!-- First Time Creation Screen -->
+        <div id="creation-screen" class="overlay" style="display: none; background: #0a0a0a;">
+            <p style="color: var(--accent-gold); letter-spacing: 2px; font-size: 12px;">NEW USER DETECTED</p>
+            <h2>INITIALIZE PROTOCOL</h2>
+            
+            <div id="creation-steps" style="width: 100%; max-width: 500px;">
+                <!-- Step 1: Avatar -->
+                <div id="creation-step-1" class="creation-step">
+                    <h3>DESIGN AVATAR</h3>
+                    <div style="display: flex; gap: 20px; align-items: flex-start; justify-content: center; background: rgba(255,255,255,0.02); padding: 20px; border-radius: 12px;">
+                        <div id="creation-avatar-preview" style="width: 120px; height: 120px; background: rgba(0,0,0,0.3); border: 2px solid var(--accent-blue); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                            <canvas id="creationCanvas" width="80" height="80"></canvas>
+                        </div>
+                        <div style="flex: 1; display: flex; flex-direction: column; gap: 10px;">
+                             <!-- Simplified controls for creation flow -->
+                             <button onclick="cycleColor(1)" style="padding: 10px;">CYCLE COLOR</button>
+                             <button onclick="cycleEyes(1)" style="padding: 10px;">CYCLE EYES</button>
+                             <button onclick="cycleHat(1)" style="padding: 10px;">CYCLE HAT</button>
+                        </div>
+                    </div>
+                    <button onclick="nextCreationStep(2)" style="margin-top: 30px; width: 100%; background: var(--accent-blue);">PROCEED TO CALIBRATION</button>
+                </div>
+
+                <!-- Step 2: Stats -->
+                <div id="creation-step-2" class="creation-step" style="display: none;">
+                    <h3>CALIBRATE CORE STATS</h3>
+                    <p style="font-size: 14px; opacity: 0.7; margin-bottom: 20px;">Allocation Points Remaining: <span id="stat-points-remaining" style="color: var(--accent-gold); font-weight: bold;">508</span></p>
+                    
+                    <div id="stat-allocation-list" style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 30px;">
+                        <!-- Stat Sliders -->
+                        <div class="stat-row" style="display: flex; flex-direction: column; gap: 5px; background: rgba(255,255,255,0.05); padding: 12px 15px; border-radius: 6px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 12px; letter-spacing: 1px;">
+                                <span>MOVEMENT SPEED</span>
+                                <span id="val-speed" style="color: var(--accent-blue); font-weight: bold;">0</span>
+                            </div>
+                            <input type="range" id="slider-speed" min="0" max="508" value="0" oninput="updateCreationStats()" style="width: 100%; accent-color: var(--accent-blue);">
+                        </div>
+
+                        <div class="stat-row" style="display: flex; flex-direction: column; gap: 5px; background: rgba(255,255,255,0.05); padding: 12px 15px; border-radius: 6px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 12px; letter-spacing: 1px;">
+                                <span>JUMP HEIGHT</span>
+                                <span id="val-jump" style="color: var(--accent-blue); font-weight: bold;">0</span>
+                            </div>
+                            <input type="range" id="slider-jump" min="0" max="508" value="0" oninput="updateCreationStats()" style="width: 100%; accent-color: var(--accent-blue);">
+                        </div>
+
+                        <div class="stat-row" style="display: flex; flex-direction: column; gap: 5px; background: rgba(255,255,255,0.05); padding: 12px 15px; border-radius: 6px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 12px; letter-spacing: 1px;">
+                                <span>CORE DAMAGE</span>
+                                <span id="val-damage" style="color: var(--accent-blue); font-weight: bold;">0</span>
+                            </div>
+                            <input type="range" id="slider-damage" min="0" max="508" value="0" oninput="updateCreationStats()" style="width: 100%; accent-color: var(--accent-blue);">
+                        </div>
+
+                        <div class="stat-row" style="display: flex; flex-direction: column; gap: 5px; background: rgba(255,255,255,0.05); padding: 12px 15px; border-radius: 6px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 12px; letter-spacing: 1px;">
+                                <span>CRIT CHANCE</span>
+                                <span id="val-crit" style="color: var(--accent-blue); font-weight: bold;">0</span>
+                            </div>
+                            <input type="range" id="slider-crit" min="0" max="508" value="0" oninput="updateCreationStats()" style="width: 100%; accent-color: var(--accent-blue);">
+                        </div>
+
+                        <div class="stat-row" style="display: flex; flex-direction: column; gap: 5px; background: rgba(255,255,255,0.05); padding: 12px 15px; border-radius: 6px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 12px; letter-spacing: 1px;">
+                                <span>FIRERATE</span>
+                                <span id="val-firerate" style="color: var(--accent-blue); font-weight: bold;">0</span>
+                            </div>
+                            <input type="range" id="slider-firerate" min="0" max="508" value="0" oninput="updateCreationStats()" style="width: 100%; accent-color: var(--accent-blue);">
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 10px;">
+                        <button onclick="nextCreationStep(1)" style="flex: 1; background: #555;">BACK</button>
+                        <button id="finalize-creation-btn" onclick="finalizeCreation()" style="flex: 2; background: #27ae60;">FINALIZE PROTOCOL</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sandbox Screen -->
+        <div id="sandbox-screen" class="overlay" style="display: none; padding-bottom: 20px;">
+            <h2>SANDBOX MODE</h2>
+            <div style="display: flex; flex-wrap: wrap; gap: 20px; width: 90%; max-width: 800px; height: 100%; max-height: calc(100vh - 200px); text-align: left; margin-bottom: 20px;">
+                <div style="flex: 1; min-width: 250px; background: rgba(0,0,0,0.5); padding: 15px; border-radius: 8px; overflow-y: auto;">
+                    <h3 style="margin-top: 0; color: var(--accent-gold);">Player Upgrades</h3>
+                    <div id="sandbox-upgrades-list" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; font-size: 12px;">
+                        <!-- Filled by JS -->
+                    </div>
+                </div>
+                <div style="flex: 1; min-width: 250px; background: rgba(0,0,0,0.5); padding: 15px; border-radius: 8px; overflow-y: auto;">
+                    <h3 style="margin-top: 0; color: #ff4757;">Boss Configuration</h3>
+                    <div>
+                        <label style="display: block; margin-bottom: 5px;">Base Health Multiplier: <span id="sandbox-hp-val">1.0</span>x</label>
+                        <input type="range" id="sandbox-hp" min="0.5" max="5.0" step="0.5" value="1.0" style="width: 100%; margin-bottom: 15px;" oninput="document.getElementById('sandbox-hp-val').innerText = this.value">
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <strong>Boss Attacks (Select at least 1)</strong>
+                    </div>
+                    <div id="sandbox-attacks-list" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; font-size: 12px;">
+                        <!-- Filled by JS -->
+                    </div>
+                    <label style="display: block; margin-top: 15px; color: #f1c40f; font-weight: bold; font-size: 14px;">
+                        <input type="checkbox" id="sandbox-cheeselord"> Is Cheese Lord
+                    </label>
+                </div>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: auto;">
+                <button onclick="startSandboxRun()" style="background: #e67e22; box-shadow: 0 4px #d35400;">Start Run</button>
+                <button onclick="showTitle()" style="background: #555; box-shadow: 0 4px #333;">Cancel</button>
+            </div>
+        </div>
+
+        <!-- Controls Screen -->
+        <div id="controls-screen" class="overlay" style="display: none;">
+            <h2>SETTINGS & CONTROLS</h2>
+            
+            <div class="settings-group" style="margin-bottom: 20px; text-align: left; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; width: 300px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <span>Mobile Controls:</span>
+                    <button id="toggle-mobile" onclick="toggleMobileMode()" style="padding: 5px 15px; width: 80px;">OFF</button>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>Sound Effects:</span>
+                    <button id="toggle-sfx" onclick="toggleSFX()" style="padding: 5px 15px; width: 80px;">ON</button>
+                </div>
+            </div>
+
+            <div id="controls-list" style="text-align: left; margin-bottom: 20px;">
+                <div class="control-item"><span>Move Left:</span> <button class="key-btn" id="key-left" onclick="remapKey('left')">ArrowLeft</button></div>
+                <div class="control-item"><span>Move Right:</span> <button class="key-btn" id="key-right" onclick="remapKey('right')">ArrowRight</button></div>
+                <div class="control-item"><span>Jump:</span> <button class="key-btn" id="key-jump" onclick="remapKey('jump')">Space</button></div>
+                <div class="control-item"><span>Shoot:</span> <button class="key-btn" id="key-interact" onclick="remapKey('interact')">E or Mouse</button></div>
+                <div class="control-item"><span>Reset:</span> <button class="key-btn" id="key-reset" onclick="remapKey('reset')">KeyR</button></div>
+                <div class="control-item"><span>Back to Menu:</span> <button class="key-btn">Esc</button></div>
+            </div>
+            <p style="font-size: 14px; opacity: 0.7; margin-bottom: 20px;">Click a button then press any key to remap.</p>
+            <button onclick="showTitle()">Back</button>
+        </div>
+
+        <!-- Credits Screen -->
+        <div id="credits-screen" class="overlay" style="display: none; background: rgba(0, 0, 0, 0.95);">
+            <h3>CREDITS</h3>
+            <div style="font-size: 14px; text-align: left; max-width: 500px; display: flex; flex-direction: column; gap: 15px; margin-bottom: 20px; line-height: 1.5;">
+                <p><strong>M.T.</strong> - Playtester.</p>
+                <p><strong>Magister Cornish</strong> - Playtesting on the projector screen, both giving feedback and advertising the game.</p>
+                <p><strong>A.A.</strong> - Hating on the game for me only to make it better.</p>
+            </div>
+            <button onclick="showTitle()" style="background: #e67e22; box-shadow: 0 4px #d35400;">Back</button>
+        </div>
+        
+        <!-- Win Screen -->
+        <div id="win-screen" class="overlay" style="display: none;">
+            <h2>VICTORY!</h2>
+            <p id="final-time-text" style="font-size: 24px; color: #2ed573;"></p>
+            <div style="margin-top: 20px;">
+                <p style="color: var(--text-secondary);">The core has been neutralized.</p>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 20px; justify-content: center;">
+                <button onclick="resetRun()" style="background: #555; box-shadow: 0 4px #333;">Back to Menu</button>
+                <button id="win-replay-btn" onclick="startSandboxRun()" style="display: none; background: #e67e22; box-shadow: 0 4px #d35400;">Replay Run</button>
+            </div>
+        </div>
+
+        <!-- Upgrade Screen -->
+        <div id="upgrade-screen" class="overlay">
+            <p style="color: var(--accent-gold); letter-spacing: 4px; font-size: 10px;">PROTOCOL: EVOLUTION</p>
+            <h2>SYSTEM UPGRADE AVAILABLE</h2>
+            <div class="card-container" id="card-selection">
+                <!-- Cards injected by JS -->
+            </div>
+        </div>
+
+        <!-- NPC Interaction UI -->
+        <div id="interaction-prompt">TALK</div>
+        
+        <!-- UI Components -->
+        <div id="admin-panel" class="overlay" style="display: none;">
+            <h2>ADMIN PANEL</h2>
+            <div style="width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 15px;">
+                <textarea id="announcement-input" placeholder="Global announcement message..." rows="3" style="padding: 10px; border-radius: 5px; border: none; width: 100%; font-size: 16px;"></textarea>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="postAnnouncement()" style="flex: 1; padding: 10px;">Post/Update</button>
+                    <button onclick="clearAnnouncement()" style="flex: 1; padding: 10px; background: #ff4757; box-shadow: 0 4px #c0392b;">Clear All</button>
+                </div>
+                <hr style="width: 100%; border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 10px 0;">
+                <button onclick="window.adminResetStats()" style="width: 100%; padding: 12px; background: #e67e22; color: white; font-weight: bold; border: none; border-radius: 4px; box-shadow: 0 4px #d35400; cursor: pointer; margin-top: 10px;">RESET ALL STATS & PROGRESS</button>
+                <hr style="width: 100%; border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 10px 0;">
+                <h3>Manage Scores</h3>
+                <div id="admin-highscore-list" style="max-height: 200px; overflow-y: auto; width: 100%; font-size: 14px;">
+                    <p>Loading scores...</p>
+                </div>
+            </div>
+            <button onclick="showTitle()" style="margin-top: 30px; background: #555; box-shadow: 0 4px #333;">Back</button>
+        </div>
+
+        <!-- Touch Controls -->
+        <div id="touch-controls" style="display: none;">
+            <div class="touch-group left-group">
+                <button id="touch-left" class="touch-btn">←</button>
+                <button id="touch-right" class="touch-btn">→</button>
+            </div>
+            <div class="touch-group right-group">
+                <button id="touch-interact" class="touch-btn">SHOOT</button>
+                <button id="touch-jump" class="touch-btn">JUMP</button>
+            </div>
+        </div>
+    </div>
+    <script type="module" src="script.js"></script>
+</body>
+</html>

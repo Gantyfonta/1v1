@@ -1,0 +1,62 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and settings.",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "color": { "type": "string" },
+        "eyeStyle": { "type": "string" },
+        "hat": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["displayName", "createdAt"]
+    },
+    "Room": {
+      "title": "Room",
+      "description": "A 1v1 game room.",
+      "type": "object",
+      "properties": {
+        "hostId": { "type": "string" },
+        "status": { "type": "string", "enum": ["waiting", "playing", "finished"] },
+        "players": { "type": "array" },
+        "playerNames": { "type": "object" },
+        "winnerId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["hostId", "status", "players", "createdAt"]
+    },
+    "PlayerState": {
+      "title": "PlayerState",
+      "description": "Real-time state of a player in a room.",
+      "type": "object",
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "velX": { "type": "number" },
+        "velY": { "type": "number" },
+        "health": { "type": "number" },
+        "facing": { "type": "number" },
+        "bullets": { "type": "array" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["x", "y", "health", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile data"
+    },
+    "/rooms/{roomId}": {
+      "schema": "Room",
+      "description": "Multiplayer game rooms"
+    },
+    "/rooms/{roomId}/states/{userId}": {
+      "schema": "PlayerState",
+      "description": "Real-time position and health of a player"
+    }
+  }
+}

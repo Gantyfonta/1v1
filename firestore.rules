@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // --- Users ---
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId) && 
+        request.resource.data.keys().hasAll(['displayName', 'createdAt']) &&
+        request.resource.data.displayName is string &&
+        request.resource.data.displayName.size() <= 50;
+    }
+
+    // --- Rooms ---
+    match /rooms/{roomId} {
+      function isPlayer(roomData) {
+        return isSignedIn() && request.auth.uid in roomData.players;
+      }
+
+      allow create: if isSignedIn() && isValidId(roomId);
+      allow get: if isSignedIn();
+      allow list: if isSignedIn() && resource.data.status == 'waiting';
+      
+      allow update: if isSignedIn() && (
+        // Action: Join Room
+        (resource.data.status == 'waiting' && 
+         resource.data.players.size() < 2 &&
+         request.resource.data.status == (request.resource.data.players.size() == 2 ? 'playing' : 'waiting') &&
+         request.resource.data.players.hasAll(resource.data.players) &&
+         request.resource.data.players.size() == resource.data.players.size() + 1 &&
+         request.auth.uid in request.resource.data.players) ||
+        
+        // Action: Game Over
+        (isPlayer(resource.data) && 
+         request.resource.data.status == 'finished' &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'winnerId', 'finishedAt']))
+      );
+
+      // --- States ---
+      match /states/{userId} {
+        allow read: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/rooms/$(roomId)).data.players;
+        allow write: if isOwner(userId) && request.auth.uid in get(/databases/$(database)/documents/rooms/$(roomId)).data.players;
+      }
+    }
+  }
+}

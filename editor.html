@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Platformer Editor Pro</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; background: #222; color: white; padding-bottom: 50px; }
+        canvas { background: #87CEEB; border: 4px solid #444; cursor: crosshair; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        .toolbar { background: #333; padding: 15px; border-radius: 8px; margin: 10px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: center; }
+        .type-btn { padding: 8px 12px; cursor: pointer; border: 2px solid transparent; border-radius: 4px; transition: 0.2s; font-size: 14px; }
+        .selected { border-color: #fff; font-weight: bold; transform: scale(1.05); }
+        textarea { width: 800px; height: 80px; background: #000; color: #0f0; margin-top: 10px; border: 1px solid #444; font-family: monospace; }
+       
+        /* Object Colors (Matching Game Colors) */
+        #type-PLATFORM { background: #2f3542; }
+        #type-SPIKE { background: #ff4757; }
+        #type-GOAL { background: #ffa502; }
+        #type-SPAWN { background: #2ed573; }
+        #type-SHRINK { background: #9c88ff; }
+        #type-NORMAL { background: #00a8ff; }
+        #type-GROW { background: #e1b12c; }
+        #type-NPC { background: #fd79a8; }
+        #type-LEVER { background: #2ed573; border: 2px solid #00d2ff; }
+        #type-BUTTON { background: #2ed573; border: 2px dashed #00d2ff; }
+       
+        .action-btn { background: #555; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; }
+        .action-btn:hover { background: #777; }
+        .mode-toggle { background: #e67e22; font-weight: bold; }
+        .mode-active { background: #2ecc71; box-shadow: 0 0 10px #2ecc71; }
+        .help { margin-top: 20px; font-size: 0.9em; color: #aaa; text-align: center; }
+        #props-panel label { margin-left: 15px; font-size: 14px; }
+        #props-panel input { background: #222; color: white; border: 1px solid #666; padding: 3px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <h2>Advanced Level Editor</h2>
+    <div class="toolbar">
+        <div id="type-PLATFORM" class="type-btn selected" onclick="setType('PLATFORM')">Platform</div>
+        <div id="type-SPIKE" class="type-btn" onclick="setType('SPIKE')">Spike</div>
+        <div id="type-GOAL" class="type-btn" onclick="setType('GOAL')">Goal</div>
+        <div id="type-SPAWN" class="type-btn" onclick="setType('SPAWN')">Spawn Point</div>
+       
+        <div style="border-left: 1px solid #555; height: 30px; margin: 0 5px;"></div>
+       
+        <div id="type-SHRINK" class="type-btn" onclick="setType('PORTAL_SHRINK', 'SHRINK')">Shrink</div>
+        <div id="type-NORMAL" class="type-btn" onclick="setType('PORTAL_NORMAL', 'NORMAL')">Normal</div>
+        <div id="type-GROW" class="type-btn" onclick="setType('PORTAL_GROW', 'GROW')">Grow</div>
+        <div id="type-NPC" class="type-btn" onclick="setType('NPC')">NPC</div>
+        <div id="type-LEVER" class="type-btn" onclick="setType('LEVER')">Lever</div>
+        <div id="type-BUTTON" class="type-btn" onclick="setType('BUTTON')">Button</div>
+       
+        <div style="border-left: 1px solid #555; height: 30px; margin: 0 5px;"></div>
+       
+        <button id="drawBtn" class="action-btn mode-toggle mode-active" onclick="setMode('DRAW')">Draw</button>
+        <button id="moveBtn" class="action-btn mode-toggle" onclick="setMode('MOVE')">Move</button>
+        <button id="resizeBtn" class="action-btn mode-toggle" onclick="setMode('RESIZE')">Resize</button>
+        <button id="rotateBtn" class="action-btn mode-toggle" onclick="setMode('ROTATE')">Rotate</button>
+        <button id="deleteBtn" class="action-btn mode-toggle" onclick="setMode('DELETE')">Delete</button>
+        <button id="trajectoryBtn" class="action-btn mode-toggle" onclick="setMode('TRAJECTORY')">Trajectory</button>
+        
+        <div style="border-left: 1px solid #555; height: 30px; margin: 0 5px;"></div>
+        
+        <button class="action-btn" onclick="clearTrajectory()" style="background:#e67e22;">Clear Path</button>
+        <button class="action-btn" onclick="clearSpin()" style="background:#e67e22;">Clear Spin</button>
+        
+        <button id="testBtn" class="action-btn" onclick="toggleTestMode()" style="background:#e74c3c; font-weight:bold;">Test Level</button>
+        <button class="action-btn" onclick="undo()">Undo</button>
+        <button class="action-btn" onclick="exportCode()">Export</button>
+        <button class="action-btn" onclick="importCode()" style="background:#9b59b6;">Import</button>
+        <button class="action-btn" onclick="clearAll()" style="background:#a22;">Clear</button>
+    </div>
+   
+    <canvas id="editorCanvas" width="800" height="400"></canvas>
+    
+    <div id="props-panel" class="toolbar" style="display: none; background: #444; border: 1px solid #666;">
+        <span style="font-weight: bold; color: #2ecc71;">Object Properties:</span>
+        <label>Spin Speed: <input type="number" id="prop-spin" step="1" style="width: 60px;" oninput="updateProp('spinSpeed', this.value)"></label>
+        <label>Move Speed (Freq): <input type="number" id="prop-move" step="0.1" style="width: 60px;" oninput="updateProp('moveSpeed', this.value)"></label>
+        <label id="label-channel">Channel: <input type="number" id="prop-channel" step="1" style="width: 50px;" oninput="updateProp('channel', this.value)"></label>
+        <label id="label-dialogue">Dialogue: <input type="text" id="prop-dialogue" style="width: 200px;" oninput="updateProp('dialogue', this.value)"></label>
+        <span style="font-size: 10px; color: #aaa; margin-left: 10px;">(Select object to edit)</span>
+    </div>
+
+    <textarea id="output" placeholder="Paste code here and click 'Import Code' to edit..."></textarea>
+
+    <div class="help">
+        <b>Controls:</b> Drag to Draw | <b>Resize Mode:</b> Drag bottom-right corner | Right Click to Delete | Ctrl+Z to Undo | <b>\ to Play</b> <br>
+        <b>NPCs:</b> Use the NPC type to add characters. Select them in Move/Resize mode to edit their dialogue in the properties panel.
+    </div>
+
+    <script>
+        const canvas = document.getElementById('editorCanvas');
+        const ctx = canvas.getContext('2d');
+        const outputField = document.getElementById('output');
+       
+        let currentType = 'PLATFORM';
+        let objects = [{ x: 0, y: 380, width: 800, height: 20, type: 'PLATFORM', angle: 0 }];
+        let history = [];
+        let currentMode = 'DRAW'; // DRAW, MOVE, ROTATE, DELETE, TRAJECTORY
+        let selectedObj = null;
+        let isDrawing = false;
+        let isDragging = false;
+        let startX, startY, curX, curY;
+        let offsetX, offsetY;
+
+        // --- TEST MODE VARIABLES ---
+        let isTestMode = false;
+        let gameTime = 0;
+        let lastTime = 0;
+        let testPlayer = { x: 0, y: 0, vx: 0, vy: 0, width: 20, height: 20, jumping: false };
+        let keys = {};
+        const gravity = 2200;
+        const jumpForce = -750;
+        const moveSpeed = 450;
+
+        function getRotatedOverlap(p, obj) {
+            const angle = (obj.currentAngle || 0) * (Math.PI / 180);
+            const cx = obj.currentX + obj.width / 2;
+            const cy = obj.currentY + obj.height / 2;
+            const pCorners = [
+                { x: p.x, y: p.y }, { x: p.x + p.width, y: p.y },
+                { x: p.x, y: p.y + p.height }, { x: p.x + p.width, y: p.y + p.height }
+            ];
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+            const hw = obj.width / 2;
+            const hh = obj.height / 2;
+            const oCorners = [
+                { x: cx + (-hw) * cos - (-hh) * sin, y: cy + (-hw) * sin + (-hh) * cos },
+                { x: cx + (hw) * cos - (-hh) * sin, y: cy + (hw) * sin + (-hh) * cos },
+                { x: cx + (hw) * cos - (hh) * sin, y: cy + (hw) * sin + (hh) * cos },
+                { x: cx + (-hw) * cos - (hh) * sin, y: cy + (-hw) * sin + (hh) * cos }
+            ];
+            const axes = [
+                { x: 1, y: 0 }, { x: 0, y: 1 },
+                { x: cos, y: sin }, { x: -sin, y: cos }
+            ];
+            let minOverlap = Infinity;
+            let overlapAxis = { x: 0, y: 0 };
+            for (const axis of axes) {
+                let minP = Infinity, maxP = -Infinity;
+                for (const pt of pCorners) {
+                    const proj = pt.x * axis.x + pt.y * axis.y;
+                    minP = Math.min(minP, proj);
+                    maxP = Math.max(maxP, proj);
+                }
+                let minO = Infinity, maxO = -Infinity;
+                for (const pt of oCorners) {
+                    const proj = pt.x * axis.x + pt.y * axis.y;
+                    minO = Math.min(minO, proj);
+                    maxO = Math.max(maxO, proj);
+                }
+                const overlap = Math.min(maxP, maxO) - Math.max(minP, minO);
+                if (overlap < 0) return null;
+                if (overlap < minOverlap) {
+                    minOverlap = overlap;
+                    overlapAxis = axis;
+                }
+            }
+            const centerDist = { x: (p.x + p.width / 2) - cx, y: (p.y + p.height / 2) - cy };
+            if (centerDist.x * overlapAxis.x + centerDist.y * overlapAxis.y < 0) {
+                overlapAxis.x = -overlapAxis.x;
+                overlapAxis.y = -overlapAxis.y;
+            }
+            return { x: overlapAxis.x * minOverlap, y: overlapAxis.y * minOverlap };
+        }
+
+        function setMode(m) {
+            if (isTestMode) return;
+            currentMode = m;
+            document.querySelectorAll('.mode-toggle').forEach(b => b.classList.remove('mode-active'));
+            const btnId = m.toLowerCase() + 'Btn';
+            document.getElementById(btnId).classList.add('mode-active');
+            selectedObj = null;
+            document.getElementById('props-panel').style.display = 'none';
+        }
+
+        function updateProp(prop, val) {
+            if (selectedObj) {
+                // Determine if we should set a boolean flag
+                if (prop === 'spinSpeed') {
+                    selectedObj.spinSpeed = parseFloat(val);
+                    selectedObj.isSpinning = selectedObj.spinSpeed !== 0;
+                } else if (prop === 'moveSpeed') {
+                    selectedObj.moveSpeed = parseFloat(val);
+                } else if (prop === 'channel') {
+                    selectedObj.channel = parseInt(val);
+                    if (isNaN(selectedObj.channel)) delete selectedObj.channel;
+                } else if (prop === 'dialogue') {
+                    selectedObj.dialogue = val;
+                }
+                render();
+            }
+        }
+
+        function clearTrajectory() {
+            if (selectedObj) {
+                saveState();
+                selectedObj.isMoving = false;
+                delete selectedObj.tx;
+                delete selectedObj.ty;
+                render();
+            } else {
+                alert("Select an object first (using Move, Rotate, or Trajectory tool)");
+            }
+        }
+
+        function clearSpin() {
+            if (selectedObj) {
+                saveState();
+                selectedObj.isSpinning = false;
+                selectedObj.spinSpeed = 0;
+                selectedObj.angle = 0;
+                render();
+            } else {
+                alert("Select an object first");
+            }
+        }
+
+        function toggleTestMode() {
+            isTestMode = !isTestMode;
+            const btn = document.getElementById('testBtn');
+            btn.innerText = isTestMode ? "Stop Testing" : "Test Level";
+            btn.style.background = isTestMode ? "#2ecc71" : "#e74c3c";
+            
+            if (isTestMode) {
+                const spawn = objects.find(o => o.type === 'SPAWN');
+                testPlayer.x = spawn ? spawn.x : 50;
+                testPlayer.y = spawn ? spawn.y : 300;
+                testPlayer.vx = 0;
+                testPlayer.vy = 0;
+                testPlayer.jumping = false;
+            }
+            render();
+        }
+
+        // Updated setType to handle both the internal name and the button ID
+        function setType(t, buttonId) {
+            if (currentMode !== 'DRAW') setMode('DRAW');
+            document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('selected'));
+           
+            // If buttonId is provided (for portals), use it; otherwise use t
+            const id = buttonId ? 'type-' + buttonId : 'type-' + t;
+            document.getElementById(id).classList.add('selected');
+            currentType = t;
+        }
+
+        // Added portal colors here so the canvas knows how to draw them
+        const colors = {
+            PLATFORM: '#2f3542',
+            SPIKE: '#ff4757',
+            GOAL: '#ffa502',
+            SPAWN: '#2ed573',
+            PORTAL_SHRINK: '#9c88ff',
+            PORTAL_NORMAL: '#00a8ff',
+            PORTAL_GROW: '#e1b12c',
+            NPC: '#fd79a8',
+            LEVER: '#2ed573',
+            BUTTON: '#2ed573'
+        };
+
+        function saveState() {
+            try {
+                history.push(JSON.stringify(objects));
+            } catch (e) {
+                console.error("Failed to save history state:", e);
+                // Fallback: push a shallow copy if JSON stringify fails for some reason
+                history.push(JSON.stringify(objects.map(o => ({...o}))));
+            }
+            if (history.length > 50) history.shift();
+        }
+
+        function undo() {
+            if (history.length > 0) {
+                objects = JSON.parse(history.pop());
+                render();
+            }
+        }
+
+        function importCode() {
+            const rawData = outputField.value.trim();
+            try {
+                let cleanData = rawData.includes('=') ? rawData.split('=')[1].trim().replace(/;$/, '') : rawData;
+                const imported = JSON.parse(cleanData);
+                if (Array.isArray(imported)) {
+                    saveState();
+                    objects = imported;
+                    render();
+                }
+            } catch (e) { alert("Import Failed: Check format."); }
+        }
+
+        canvas.onmousedown = (e) => {
+            if(e.button !== 0 || isTestMode) return;
+            const r = canvas.getBoundingClientRect();
+            const mx = e.clientX - r.left;
+            const my = e.clientY - r.top;
+
+            if (currentMode === 'DRAW') {
+                saveState();
+                isDrawing = true;
+                startX = mx; startY = my;
+                curX = mx; curY = my;
+                document.getElementById('props-panel').style.display = 'none';
+            } else {
+                selectedObj = objects.find(o => mx > o.x && mx < o.x+o.width && my > o.y && my < o.y+o.height);
+                if (selectedObj) {
+                    isDragging = true;
+                    saveState();
+                    if (currentMode === 'MOVE') {
+                        offsetX = mx - selectedObj.x;
+                        offsetY = my - selectedObj.y;
+                    } else if (currentMode === 'RESIZE') {
+                        // Check which corner is being dragged or just default to bottom-right
+                        // For simplicity, we'll anchor the top-left and move the bottom-right
+                        // unless we want to be fancy. Let's do simple first.
+                        offsetX = selectedObj.width;
+                        offsetY = selectedObj.height;
+                    } else if (currentMode === 'DELETE') {
+                        objects = objects.filter(o => o !== selectedObj);
+                        selectedObj = null;
+                    } else if (currentMode === 'ROTATE' || currentMode === 'TRAJECTORY') {
+                        startX = mx; startY = my;
+                    }
+
+                    // Show properties if relevant
+                    if (selectedObj && currentMode !== 'DELETE') {
+                        document.getElementById('props-panel').style.display = 'flex';
+                        document.getElementById('prop-spin').value = selectedObj.spinSpeed || 0;
+                        document.getElementById('prop-move').value = selectedObj.moveSpeed || 1;
+                        document.getElementById('prop-channel').value = selectedObj.channel === undefined ? '' : selectedObj.channel;
+                        
+                        const diagInput = document.getElementById('prop-dialogue');
+                        const diagLabel = document.getElementById('label-dialogue');
+                        const chanLabel = document.getElementById('label-channel');
+
+                        // Toggle visibility based on type
+                        diagLabel.style.display = (selectedObj.type === 'NPC') ? 'inline' : 'none';
+                        chanLabel.style.display = (['PLATFORM', 'LEVER', 'BUTTON'].includes(selectedObj.type)) ? 'inline' : 'none';
+                        
+                        if (selectedObj.type === 'NPC') diagInput.value = selectedObj.dialogue || '';
+                    }
+                } else {
+                    document.getElementById('props-panel').style.display = 'none';
+                }
+            }
+            render();
+        };
+
+        canvas.onmousemove = (e) => {
+            const r = canvas.getBoundingClientRect();
+            curX = e.clientX - r.left;
+            curY = e.clientY - r.top;
+
+            if (selectedObj && isDragging) {
+                if (currentMode === 'MOVE') {
+                    selectedObj.x = curX - offsetX;
+                    selectedObj.y = curY - offsetY;
+                } else if (currentMode === 'RESIZE') {
+                    selectedObj.width = Math.max(10, curX - selectedObj.x);
+                    selectedObj.height = Math.max(10, curY - selectedObj.y);
+                } else if (currentMode === 'ROTATE') {
+                    const centerX = selectedObj.x + selectedObj.width / 2;
+                    const centerY = selectedObj.y + selectedObj.height / 2;
+                    const dist = Math.sqrt((curX - centerX)**2 + (curY - centerY)**2);
+                    const angle = Math.atan2(curY - centerY, curX - centerX) * (180 / Math.PI);
+                    
+                    // Spin speed based on distance from center and direction
+                    selectedObj.spinSpeed = (curX - startX) * 2; 
+                    selectedObj.isSpinning = true;
+                } else if (currentMode === 'TRAJECTORY') {
+                    selectedObj.tx = selectedObj.x + (curX - startX);
+                    selectedObj.ty = selectedObj.y + (curY - startY);
+                    selectedObj.isMoving = true;
+                }
+            }
+            render();
+        };
+
+        window.onmouseup = () => {
+            if (isDrawing) {
+                const w = Math.abs(curX - startX);
+                const h = Math.abs(curY - startY);
+                if(w > 5 && h > 5) {
+                    objects.push({
+                        x: Math.min(startX, curX), y: Math.min(startY, curY),
+                        width: w, height: h, type: currentType
+                    });
+                } else { history.pop(); }
+            }
+            isDrawing = false;
+            isDragging = false;
+            render();
+        };
+
+        canvas.oncontextmenu = (e) => {
+            e.preventDefault();
+            saveState();
+            const r = canvas.getBoundingClientRect();
+            const mx = e.clientX - r.left;
+            const my = e.clientY - r.top;
+            const oldLen = objects.length;
+            objects = objects.filter(o => !(mx > o.x && mx < o.x+o.width && my > o.y && my < o.y+o.height));
+            if(objects.length === oldLen) history.pop();
+            render();
+        };
+
+        function render(timestamp) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            if (!lastTime) lastTime = timestamp;
+            let dt = timestamp ? (timestamp - lastTime) / 1000 : 0;
+            if (dt > 0.1) dt = 0.1;
+            lastTime = timestamp;
+
+            const time = timestamp ? timestamp / 1000 : 0;
+            gameTime += dt * 2;
+           
+            // --- PHYSICS UPDATE (ONLY IN TEST MODE) ---
+            if (isTestMode) {
+                // Horizontal
+                if (keys['ArrowLeft'] || keys['KeyA']) testPlayer.vx = -moveSpeed;
+                else if (keys['ArrowRight'] || keys['KeyD']) testPlayer.vx = moveSpeed;
+                else testPlayer.vx = 0;
+
+                testPlayer.vy += gravity * dt;
+                
+                // Move Y (Combined with X resolution for rotated)
+                testPlayer.y += testPlayer.vy * dt;
+                testPlayer.x += testPlayer.vx * dt;
+
+                objects.forEach(o => {
+                    const progress = o.isMoving ? (Math.sin(gameTime * (o.moveSpeed || 1)) + 1) / 2 : 0;
+                    o.currentX = o.isMoving ? o.x + (o.tx - o.x) * progress : o.x;
+                    o.currentY = o.isMoving ? o.y + (o.ty - o.y) * progress : o.y;
+                    o.currentAngle = (o.angle || 0) + (o.isSpinning ? (o.spinSpeed || 0) * time : 0);
+
+                    if ((o.currentAngle || 0) % 360 !== 0) {
+                        const overlap = getRotatedOverlap(testPlayer, o);
+                        if (overlap) {
+                            if (o.type === 'PLATFORM') {
+                                if (o.isSpinning) {
+                                    const cx = o.currentX + o.width / 2;
+                                    const cy = o.currentY + o.height / 2;
+                                    const rx = (testPlayer.x + testPlayer.width / 2) - cx;
+                                    const ry = (testPlayer.y + testPlayer.height / 2) - cy;
+                                    const deltaAngle = (o.spinSpeed || 0) * dt * (Math.PI / 180);
+                                    testPlayer.x += (rx * Math.cos(deltaAngle) - ry * Math.sin(deltaAngle)) - rx;
+                                    testPlayer.y += (rx * Math.sin(deltaAngle) + ry * Math.cos(deltaAngle)) - ry;
+                                }
+                                const finalOverlap = getRotatedOverlap(testPlayer, o);
+                                if (finalOverlap) {
+                                    testPlayer.x += finalOverlap.x;
+                                    testPlayer.y += finalOverlap.y;
+                                    if (Math.abs(finalOverlap.y) > Math.abs(finalOverlap.x)) {
+                                        if (finalOverlap.y < 0) {
+                                            testPlayer.jumping = false;
+                                            testPlayer.vy = 0;
+                                        } else {
+                                            testPlayer.vy = 0;
+                                        }
+                                    } else {
+                                        testPlayer.vx = 0;
+                                    }
+                                }
+                            } else if (o.type === 'SPIKE') {
+                                toggleTestMode(); toggleTestMode();
+                            } else if (o.type === 'GOAL') {
+                                alert("Level Complete!"); toggleTestMode();
+                            }
+                        }
+                    } else {
+                        const physX = o.currentX;
+                        const physY = o.currentY;
+                        if (testPlayer.x < physX + o.width && testPlayer.x + testPlayer.width > physX &&
+                            testPlayer.y < physY + o.height && testPlayer.y + testPlayer.height > physY) {
+                            if (o.type === 'PLATFORM') {
+                                // Simplified push-out for editor test mode
+                                const overlapY = testPlayer.vy > 0 ? (physY - (testPlayer.y + testPlayer.height)) : ((physY + o.height) - testPlayer.y);
+                                const overlapX = testPlayer.vx > 0 ? (physX - (testPlayer.x + testPlayer.width)) : ((physX + o.width) - testPlayer.x);
+                                
+                                if (Math.abs(overlapY) < Math.abs(overlapX)) {
+                                    testPlayer.y += overlapY;
+                                    if (testPlayer.vy > 0) {
+                                        testPlayer.vy = 0;
+                                        testPlayer.jumping = false;
+                                    } else testPlayer.vy = 0;
+                                } else {
+                                    testPlayer.x += overlapX;
+                                    testPlayer.vx = 0;
+                                }
+                            } else if (o.type === 'SPIKE') {
+                                toggleTestMode(); toggleTestMode(); 
+                            } else if (o.type === 'GOAL') {
+                                alert("Level Complete!");
+                                toggleTestMode();
+                            }
+                        }
+                    }
+                });
+
+                if (testPlayer.x < 0) testPlayer.x = 0;
+                if (testPlayer.x > canvas.width - testPlayer.width) testPlayer.x = canvas.width - testPlayer.width;
+                if (testPlayer.y > canvas.height) { toggleTestMode(); toggleTestMode(); }
+            }
+
+            objects.forEach(o => {
+                ctx.save();
+                let drawAngle = o.angle || 0;
+                if (o.isSpinning) {
+                    drawAngle += (o.spinSpeed || 0) * time;
+                }
+                
+                const progress = o.isMoving ? (Math.sin(gameTime * (o.moveSpeed || 1)) + 1) / 2 : 0;
+                const drawX = o.isMoving ? o.x + (o.tx - o.x) * progress : o.x;
+                const drawY = o.isMoving ? o.y + (o.ty - o.y) * progress : o.y;
+
+                ctx.translate(drawX + o.width / 2, drawY + o.height / 2);
+                ctx.rotate(drawAngle * Math.PI / 180);
+                ctx.fillStyle = colors[o.type] || '#fff';
+                
+                if (o.type === 'LEVER' || o.type === 'BUTTON') {
+                    const isActive = false; // Always visually off in static editor view
+                    const stateColor = (o.channel !== undefined) ? '#2ed573' : '#777'; 
+                    ctx.fillStyle = stateColor;
+
+                    if (o.type === 'LEVER') {
+                        ctx.fillStyle = '#444';
+                        ctx.fillRect(-o.width/2, o.height/2 - 5, o.width, 5);
+                        ctx.save();
+                        ctx.translate(0, o.height/2 - 5);
+                        ctx.rotate(Math.PI/4); // OFF position
+                        ctx.fillStyle = stateColor;
+                        ctx.fillRect(-2, -o.height * 0.8, 4, o.height * 0.8);
+                        ctx.beginPath();
+                        ctx.arc(0, -o.height * 0.8, 5, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.restore();
+                    } else if (o.type === 'BUTTON') {
+                        ctx.fillStyle = '#444';
+                        ctx.fillRect(-o.width/2, o.height/2 - 5, o.width, 5);
+                        ctx.fillStyle = stateColor;
+                        ctx.fillRect(-o.width/3, o.height/2 - 12, o.width/1.5, 7);
+                    }
+                } else if (o.type === 'NPC') {
+                    // Draw a little character shape
+                    ctx.beginPath();
+                    ctx.arc(0, -o.height/4, o.width/3, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillRect(-o.width/2.5, 0, o.width/1.25, o.height/2);
+                    
+                    // Eyes
+                    ctx.fillStyle = 'white';
+                    ctx.fillRect(-o.width/8, -o.height/4 - o.height/10, o.width/15, o.height/15);
+                    ctx.fillRect(o.width/15, -o.height/4 - o.height/10, o.width/15, o.height/15);
+                } else {
+                    ctx.fillRect(-o.width / 2, -o.height / 2, o.width, o.height);
+                }
+                
+                ctx.restore();
+
+                if (o.isMoving) {
+                    ctx.beginPath();
+                    ctx.setLineDash([5, 5]);
+                    ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+                    ctx.lineWidth = 1;
+                    ctx.moveTo(o.x + o.width/2, o.y + o.height/2);
+                    ctx.lineTo(o.tx + o.width/2, o.ty + o.height/2);
+                    ctx.stroke();
+                    ctx.strokeRect(o.tx, o.ty, o.width, o.height);
+                    ctx.setLineDash([]);
+                }
+
+                // Resize handles
+                if (currentMode === 'RESIZE' && o === selectedObj) {
+                    ctx.strokeStyle = '#2ecc71';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(o.x, o.y, o.width, o.height);
+                    ctx.fillStyle = '#2ecc71';
+                    ctx.fillRect(o.x + o.width - 5, o.y + o.height - 5, 10, 10);
+                }
+            });
+
+            if (isTestMode) {
+                ctx.fillStyle = '#ff4757';
+                ctx.fillRect(testPlayer.x, testPlayer.y, testPlayer.width, testPlayer.height);
+            }
+
+            if (isTestMode || objects.some(o => o.isSpinning || o.isMoving)) {
+                requestAnimationFrame(render);
+            }
+
+            if(isDrawing) {
+                ctx.strokeStyle = 'white';
+                ctx.setLineDash([5, 5]);
+                ctx.strokeRect(startX, startY, curX - startX, curY - startY);
+                ctx.setLineDash([]);
+            }
+        }
+
+        function exportCode() {
+            try {
+                outputField.value = JSON.stringify(objects);
+            } catch (e) {
+                console.error("Export failed:", e);
+                alert("Export failed due to circular structure error. Attempting recovery...");
+                outputField.value = JSON.stringify(objects.map(o => {
+                    const copy = { ...o };
+                    // Remove potential circular/complex properties
+                    delete copy.currentX;
+                    delete copy.currentY;
+                    delete copy.currentAngle;
+                    delete copy.oldX;
+                    delete copy.oldY;
+                    return copy;
+                }));
+            }
+        }
+
+        function clearAll() {
+            if(confirm("Clear the whole level?")) {
+                saveState();
+                objects = [];
+                render();
+            }
+        }
+
+        window.addEventListener('keydown', (e) => {
+            keys[e.code] = true;
+            if ((keys['ArrowUp'] || keys['Space'] || keys['KeyW']) && isTestMode && !testPlayer.jumping) {
+                testPlayer.vy = jumpForce;
+                testPlayer.jumping = true;
+            }
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z') undo();
+            if (e.key === '\\') {
+                window.location.href = '/';
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            keys[e.code] = false;
+        });
+
+        render();
+    </script>
+</body>
+</html>
