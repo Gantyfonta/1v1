@@ -1351,14 +1351,42 @@ function updateMultiplayer(dt) {
             weaponType: player.weaponType,
             isSwinging: player.isSwinging,
             swingProgress: player.swingProgress,
-            bullets: player.bullets.map(b => ({ x: b.x, y: b.y, radius: b.radius }))
+            ready: player.ready || false,
+            bullets: player.bullets.map(b => ({ x: b.x, y: b.y, vx: b.vx, vy: b.vy, radius: b.radius }))
         });
     }
 
+    // Local Opponent Bullet Simulation for smoothness
+    if (multiplayer.opponentState && multiplayer.opponentState.bullets) {
+        // If we don't have opponent bullets yet, or the count changed significantly, re-initialize
+        if (!multiplayer.opponentBullets || multiplayer.opponentBullets.length !== multiplayer.opponentState.bullets.length) {
+             multiplayer.opponentBullets = multiplayer.opponentState.bullets.map(b => ({...b}));
+        } else {
+             // Otherwise, smoothly move them towards reported positions or just simulate
+             for (let i = 0; i < multiplayer.opponentBullets.length; i++) {
+                 const b = multiplayer.opponentBullets[i];
+                 const target = multiplayer.opponentState.bullets[i];
+                 // If the bullet has vx/vy, use it
+                 if (target.vx !== undefined) {
+                     b.vx = target.vx;
+                     b.vy = target.vy;
+                 }
+                 // Simple physics update
+                 b.x += (b.vx || 0) * dt;
+                 b.y += (b.vy || 0) * dt;
+
+                 // Every packet, we "snap" or lerp to the reported position to avoid drift
+                 // Since we update at 50ms, a slight lerp is good.
+                 b.x += (target.x - b.x) * 0.1;
+                 b.y += (target.y - b.y) * 0.1;
+             }
+        }
+    }
+
     // Check if opponent bullets hit us
-    if (multiplayer.opponentState && multiplayer.opponentState.bullets && player.health > 0 && player.invuln <= 0) {
-        for (let i = 0; i < multiplayer.opponentState.bullets.length; i++) {
-            const b = multiplayer.opponentState.bullets[i];
+    if (multiplayer.opponentBullets && player.health > 0 && player.invuln <= 0) {
+        for (let i = 0; i < multiplayer.opponentBullets.length; i++) {
+            const b = multiplayer.opponentBullets[i];
             const dx = (player.x + player.width/2) - b.x;
             const dy = (player.y + player.height/2) - b.y;
             const dist = Math.sqrt(dx*dx + dy*dy);
@@ -1366,6 +1394,13 @@ function updateMultiplayer(dt) {
                 playerTakeDamage();
                 break;
             }
+        }
+    }
+
+    // Synchronization for Upgrade Screen (Round Start)
+    if (gameState === 'WAITING_FOR_OPPONENT_READY') {
+        if (multiplayer.opponentState && multiplayer.opponentState.ready && player.ready) {
+            startNextRound();
         }
     }
 
@@ -1389,6 +1424,7 @@ function updateMultiplayer(dt) {
 function handleRoundEnd(isLocalWin) {
     if (gameState !== 'PLAYING') return;
     gameState = 'ROUND_OVER';
+    player.ready = false; // Reset readiness for the upgrade screen pick
     
     if (isLocalWin) {
         multiplayer.p1Score++;
@@ -1586,9 +1622,10 @@ function showUpgradeScreen() {
             up.run();
             multiplayer.selectedUpgrade = up.id;
             player.upgrades[up.id] = (player.upgrades[up.id] || 0) + 1;
+            player.ready = true;
             screen.style.display = 'none';
             
-            // Wait for both players to pick if needed, or just proceed
+            // Wait for both players to pick
             notifyPick();
         };
         container.appendChild(card);
@@ -1598,9 +1635,8 @@ function showUpgradeScreen() {
 
 async function notifyPick() {
     if (multiplayer.roomId) {
-        multiplayer.waitingForReady = true;
-        // Optimization: In a real game we'd wait for both. 
-        // For simplicity, we'll just start the next round when the local player picks.
+        gameState = 'WAITING_FOR_OPPONENT_READY';
+    } else {
         startNextRound();
     }
 }
@@ -3544,8 +3580,8 @@ function draw() {
         }
 
         // Draw Opponent Bullets
-        if (opp.bullets) {
-            opp.bullets.forEach(b => {
+        if (multiplayer.opponentBullets) {
+            multiplayer.opponentBullets.forEach(b => {
                 ctx.fillStyle = '#ff4757';
                 ctx.shadowBlur = 10;
                 ctx.shadowColor = '#ff4757';
@@ -3681,21 +3717,9 @@ window.cycleHat = function() {
 };
 
 function checkOnboarding() {
-    if (!localStorage.getItem('firstTimeSetupComplete')) {
-        gameState = 'CREATION';
-        const screen = document.getElementById('creation-screen');
-        if (screen) {
-            screen.style.display = 'flex';
-            renderAvatarPreview();
-        }
-    } else {
-        // Load stats if they exist
-        player.damage += parseInt(localStorage.getItem('stat_damage')) || 0;
-        player.crit += (parseInt(localStorage.getItem('stat_crit')) || 0) / 100;
-        playerMoveSpeed += (parseInt(localStorage.getItem('stat_speed')) || 0) * 2;
-        jumpForce -= (parseInt(localStorage.getItem('stat_jump')) || 0) * 5;
-        PLAYER_FIRE_RATE *= (1 - ((parseInt(localStorage.getItem('stat_firerate')) || 0) / 1000));
-    }
+    // Skip onboarding for now as requested (stat screen removal)
+    localStorage.setItem('firstTimeSetupComplete', 'true');
+    gameState = 'START';
 }
 
 // Expose functions for inline HTML event handlers
