@@ -1347,6 +1347,10 @@ function updateMultiplayer(dt) {
             color: player.color,
             eyeStyle: player.eyeStyle,
             hat: player.hat,
+            facing: player.facing,
+            weaponType: player.weaponType,
+            isSwinging: player.isSwinging,
+            swingProgress: player.swingProgress,
             bullets: player.bullets.map(b => ({ x: b.x, y: b.y, radius: b.radius }))
         });
     }
@@ -1358,10 +1362,21 @@ function updateMultiplayer(dt) {
             const dx = (player.x + player.width/2) - b.x;
             const dy = (player.y + player.height/2) - b.y;
             const dist = Math.sqrt(dx*dx + dy*dy);
-            if (dist < (b.radius || 6) + player.width/3) {
+            if (dist < (b.radius || 6) + player.width/2) {
                 playerTakeDamage();
                 break;
             }
+        }
+    }
+
+    // Check if opponent sword hits us
+    if (multiplayer.opponentState && multiplayer.opponentState.weaponType === 'SWORD' && multiplayer.opponentState.isSwinging && player.health > 0 && player.invuln <= 0) {
+        const opp = multiplayer.opponentState;
+        const dx = (player.x + player.width/2) - (opp.x + 15);
+        const dy = (player.y + player.height/2) - (opp.y + 15);
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < 60) { // Sword reach
+            playerTakeDamage();
         }
     }
 
@@ -3498,6 +3513,35 @@ function draw() {
         // Interpolation for smoother movement
         const opp = multiplayer.opponentState;
         drawPlayerAvatar(ctx, opp.x, opp.y, 30, 30, opp.color || '#ff4757', opp.eyeStyle || 'NORMAL', opp.hat || 'NONE');
+
+        // Draw Opponent Sword
+        if (opp.weaponType === 'SWORD') {
+            ctx.save();
+            ctx.translate(opp.x + 15, opp.y + 15);
+            let angle = (opp.facing === -1) ? Math.PI : 0;
+            
+            if (opp.isSwinging) {
+                const reach = 80;
+                ctx.beginPath();
+                ctx.arc(0, 0, reach, 0, Math.PI * 2);
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = `rgba(255, 255, 255, ${1.0 - (opp.swingProgress || 0)})`;
+                ctx.stroke();
+                ctx.fillStyle = `rgba(255, 255, 255, ${(1.0 - (opp.swingProgress || 0)) * 0.2})`;
+                ctx.fill();
+            }
+
+            let sr = -0.6;
+            if (opp.isSwinging) sr = -0.8 + ((opp.swingProgress || 0) * 1.6);
+            ctx.rotate(angle + sr + Math.PI/2);
+            const sl = 70;
+            const sw = 8;
+            ctx.fillStyle = '#fff';
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = opp.color || '#ff4757';
+            ctx.fillRect(-sw/2, -sl, sw, sl);
+            ctx.restore();
+        }
 
         // Draw Opponent Bullets
         if (opp.bullets) {
