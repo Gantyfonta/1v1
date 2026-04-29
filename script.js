@@ -1344,6 +1344,9 @@ function updateMultiplayer(dt) {
             y: player.y,
             health: player.health,
             maxHealth: player.maxHealth,
+            color: player.color,
+            eyeStyle: player.eyeStyle,
+            hat: player.hat,
             bullets: player.bullets.map(b => ({ x: b.x, y: b.y, radius: b.radius }))
         });
     }
@@ -3491,10 +3494,10 @@ function draw() {
         });
     }
     // Draw Opponent
-    if (multiplayer.opponent) {
+    if (multiplayer.opponentState) {
         // Interpolation for smoother movement
-        const opp = multiplayer.opponent;
-        drawPlayerAvatar(ctx, opp.x, opp.y, 30, 30, opp.color || '#ff4757', opp.eyeStyle || 'NORMAL');
+        const opp = multiplayer.opponentState;
+        drawPlayerAvatar(ctx, opp.x, opp.y, 30, 30, opp.color || '#ff4757', opp.eyeStyle || 'NORMAL', opp.hat || 'NONE');
 
         // Draw Opponent Bullets
         if (opp.bullets) {
